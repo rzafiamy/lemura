@@ -13,13 +13,8 @@ Long conversations have a natural structure:
 
 The head contains the "why" of the session. The tail contains "where we are now." The middle is mostly intermediate reasoning that can be summarized without losing critical context.
 
-```
-Before compression:
-turn1  turn2  turn3  turn4  turn5  turn6  turn7  turn8  turn9  turn10
+![Sandwich Compression Strategy](/images/sandwich-compression.png)
 
-After SandwichCompressionStrategy({ preserveFirst:2, preserveLast:2 }):
-turn1  turn2  [SUMMARY of turns 3-8]  turn9  turn10
-```
 
 ---
 
