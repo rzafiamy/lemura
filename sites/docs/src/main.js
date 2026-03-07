@@ -264,7 +264,7 @@ function renderHome() {
         <div class="hidden md:flex items-center gap-8 text-[11px] font-black uppercase tracking-widest text-slate-400">
           <a href="#/docs/getting-started" class="hover:text-slate-900 transition-colors">Documentation</a>
           <a href="#/docs/adapters" class="hover:text-slate-900 transition-colors">Adapters</a>
-          <a href="https://github.com/rzafiamy/lemura/lemura" target="_blank" class="flex items-center gap-2 hover:text-slate-900 transition-colors">${icons.github} GitHub</a>
+          <a href="https://github.com/rzafiamy/lemura" target="_blank" class="flex items-center gap-2 hover:text-slate-900 transition-colors">${icons.github} GitHub</a>
         </div>
 
         <a href="#/docs/getting-started" class="btn-primary">
@@ -353,7 +353,7 @@ function renderHome() {
             <span class="font-display font-black text-sm tracking-tighter">LEMURA</span>
           </div>
           <div class="flex gap-8 text-[10px] font-black uppercase tracking-widest text-slate-400">
-            <a href="https://github.com/rzafiamy/lemura/lemura" class="hover:text-slate-900 transition-colors">GitHub</a>
+            <a href="https://github.com/rzafiamy/lemura" class="hover:text-slate-900 transition-colors">GitHub</a>
             <a href="https://www.npmjs.com/package/lemura" class="hover:text-slate-900 transition-colors">NPM</a>
             <span class="text-slate-200">MIT LICENSE</span>
           </div>
@@ -460,7 +460,7 @@ async function renderDocs(docId) {
           
           <div class="pt-6 border-t border-black/5">
             <div class="sidebar-category">Resources</div>
-            <a href="https://github.com/rzafiamy/lemura/lemura" target="_blank" class="sidebar-child-link gap-2">
+            <a href="https://github.com/rzafiamy/lemura" target="_blank" class="sidebar-child-link gap-2">
               ${getIconHtml('github', 14)} GitHub ${icons.externalLink}
             </a>
           </div>
@@ -490,7 +490,7 @@ async function renderDocs(docId) {
            </div>
            
            <div class="flex items-center gap-4">
-              <a href="https://github.com/rzafiamy/lemura/lemura" target="_blank" class="btn-ghost" title="Star on GitHub">${icons.github}</a>
+              <a href="https://github.com/rzafiamy/lemura" target="_blank" class="btn-ghost" title="Star on GitHub">${icons.github}</a>
            </div>
         </header>
 

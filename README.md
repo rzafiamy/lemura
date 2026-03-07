@@ -5,8 +5,8 @@
 **A provider-agnostic, premium agentic AI runtime for the modern web.**
 
 [![npm version](https://img.shields.io/npm/v/lemura.svg?style=flat-square)](https://www.npmjs.com/package/lemura)
-[![license](https://img.shields.io/npm/l/lemura.svg?style=flat-square)](https://github.com/rzafiamy/lemura/lemura/blob/main/LICENSE)
-[![build](https://img.shields.io/github/actions/workflow/status/lemura-ai/lemura/ci.yml?branch=main&style=flat-square)](https://github.com/rzafiamy/lemura/lemura/actions)
+[![license](https://img.shields.io/npm/l/lemura.svg?style=flat-square)](https://github.com/rzafiamy/lemura/blob/main/LICENSE)
+[![build](https://img.shields.io/github/actions/workflow/status/lemura-ai/lemura/ci.yml?branch=main&style=flat-square)](https://github.com/rzafiamy/lemura/actions)
 [![coverage](https://img.shields.io/codecov/c/github/lemura-ai/lemura?style=flat-square)](https://codecov.io/gh/lemura-ai/lemura)
 
 ---
