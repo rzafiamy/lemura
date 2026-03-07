@@ -180,6 +180,21 @@ renderer.blockquote = function ({ tokens }) {
   return `<blockquote>${rawContent}</blockquote>`
 }
 
+renderer.link = function ({ href, title, text }) {
+  // If it's an internal link starting with /docs/, prefix with # for hash routing
+  if (href.startsWith('/docs/')) {
+    return `<a href="#${href}"${title ? ` title="${title}"` : ''}>${text}</a>`
+  }
+
+  // If it's an external link (starts with http)
+  if (href.startsWith('http')) {
+    return `<a href="${href}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener noreferrer">${text}</a>`
+  }
+
+  // Default behavior for other links (like anchors # or relative paths)
+  return `<a href="${href}"${title ? ` title="${title}"` : ''}>${text}</a>`
+}
+
 marked.use({
   renderer,
   gfm: true,
