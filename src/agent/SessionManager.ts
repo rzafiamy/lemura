@@ -1,11 +1,13 @@
-import { SessionConfig, ContextWindow, TokenUsage, IProviderAdapter } from '../types/index.js';
+import { SessionConfig, ContextWindow, TokenUsage, IProviderAdapter, ContentBlock } from '../types/index.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
+import { SkillInjector } from '../skills/SkillInjector.js';
 import { LemuraMaxIterationsError } from '../types/index.js';
 
 export class SessionManager {
     private contextManager: ContextManager;
     private toolRegistry: ToolRegistry;
+    private skillInjector: SkillInjector;
     private context: ContextWindow;
     private adapter: IProviderAdapter;
     private config: SessionConfig;
@@ -16,6 +18,7 @@ export class SessionManager {
         this.adapter = config.adapter;
         this.contextManager = new ContextManager();
         this.toolRegistry = new ToolRegistry(config.tools || []);
+        this.skillInjector = new SkillInjector(config.skills || []);
 
         for (const strategy of config.compressionStrategies || []) {
             this.contextManager.registerStrategy(strategy);
@@ -39,12 +42,12 @@ export class SessionManager {
         return [...this.context.turns];
     }
 
-    async run(userMessage: string): Promise<string> {
+    async run(userMessage: string | ContentBlock[]): Promise<string> {
         // 1. Prepare context with user's message
         this.context.turns.push({
             role: 'user',
             content: userMessage,
-            tokenCount: this.adapter.estimateTokens(userMessage),
+            tokenCount: Array.isArray(userMessage) ? userMessage.length * 50 : this.adapter.estimateTokens(userMessage),
             turnIndex: this.context.turns.length,
             compressed: false
         });
@@ -62,14 +65,19 @@ export class SessionManager {
             // Map context to provider API format
             const messages = this.context.turns.map(t => ({
                 role: t.role,
-                content: typeof t.content === 'string' ? t.content : JSON.stringify(t.content),
+                content: t.content,
                 ...(t.role === 'tool' && t.toolResults?.[0] ? { name: t.toolResults[0].toolCallId } : {}),
                 ...(t.role === 'assistant' && t.toolCalls ? { toolCalls: t.toolCalls } : {})
             }));
 
             // In a real implementation we would also inject the system prompt + compressionSummary properly
-            if (this.context.systemPrompt) {
-                messages.unshift({ role: 'system', content: this.context.systemPrompt });
+            let fullSystemPrompt = this.context.systemPrompt || '';
+            const injectedSkills = this.skillInjector.buildInjectionBlock('system_prompt');
+            if (injectedSkills) {
+                fullSystemPrompt += '\n\n' + injectedSkills;
+            }
+            if (fullSystemPrompt.trim()) {
+                messages.unshift({ role: 'system', content: fullSystemPrompt.trim() });
             }
 
             // 3. Call provider

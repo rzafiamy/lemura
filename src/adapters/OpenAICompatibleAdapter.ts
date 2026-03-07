@@ -59,15 +59,26 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
+                const headers: Record<string, string> = {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    ...this.defaultHeaders,
+                };
+
+                if (init.headers) {
+                    Object.assign(headers, init.headers);
+                }
+
+                // Don't set Content-Type if it's 'unset' (for FormData)
+                if (headers['Content-Type'] === 'unset') {
+                    delete headers['Content-Type'];
+                } else if (!headers['Content-Type']) {
+                    headers['Content-Type'] = 'application/json';
+                }
+
                 const response = await fetch(url, {
                     ...init,
                     signal: controller.signal,
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'Content-Type': 'application/json',
-                        ...this.defaultHeaders,
-                        ...init.headers,
-                    },
+                    headers,
                 });
 
                 clearTimeout(timeoutId);
@@ -259,20 +270,108 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
         }
     }
 
-    // Unsupported methods throw standard error
     async transcribe(request: TranscriptionRequest): Promise<TranscriptionResponse> {
-        throw new LemuraAdapterError('ASR not supported by this adapter implementation directly without FormData mapping.', 'CAPABILITY_NOT_SUPPORTED');
+        const binaryString = atob(request.audioBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: request.mimeType });
+        const formData = new FormData();
+        formData.append('file', blob, 'audio.webm');
+        formData.append('model', 'whisper-1');
+        if (request.language) formData.append('language', request.language);
+
+        const response = await this.fetchWithRetry(`${this.baseUrl}/audio/transcriptions`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Content-Type': 'unset'
+            }
+        });
+
+        const data = await response.json();
+        return {
+            transcript: data.text,
+            confidence: 1.0, // OpenAI doesn't return confidence in standard response
+            language: data.language || request.language || 'en'
+        };
     }
 
     async *synthesize(request: SynthesisRequest): AsyncIterable<AudioChunk> {
-        throw new LemuraAdapterError('TTS not supported by this implementation directly', 'CAPABILITY_NOT_SUPPORTED');
+        const response = await this.fetchWithRetry(`${this.baseUrl}/audio/speech`, {
+            method: 'POST',
+            body: JSON.stringify({
+                model: 'tts-1',
+                input: request.text,
+                voice: request.voiceId || 'alloy',
+                response_format: request.format || 'mp3'
+            })
+        });
+
+        if (!response.body) throw new LemuraAdapterError('No response body for TTS', 'STREAM_ERROR');
+
+        const reader = response.body.getReader();
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value) {
+                    const binary = new TextDecoder('latin1').decode(value);
+                    yield { audioBase64: btoa(binary) };
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
     }
 
     async describeImage(request: VisionRequest): Promise<VisionResponse> {
-        throw new LemuraAdapterError('Vision not implemented yet', 'CAPABILITY_NOT_SUPPORTED');
+        const payload = {
+            model: this.defaultModel,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: request.prompt || 'Describe this image' },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:image/jpeg;base64,${request.imageBase64}`
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        const response = await this.fetchWithRetry(`${this.baseUrl}/chat/completions`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        return {
+            description: data.choices[0].message.content,
+            objects: [] // OpenAI doesn't return structured objects in standard vision call
+        };
     }
 
     async generateImage(request: ImageGenRequest): Promise<ImageGenResponse> {
-        throw new LemuraAdapterError('Image generation not implemented yet', 'CAPABILITY_NOT_SUPPORTED');
+        const response = await this.fetchWithRetry(`${this.baseUrl}/images/generations`, {
+            method: 'POST',
+            body: JSON.stringify({
+                prompt: request.prompt,
+                model: 'dall-e-3',
+                n: 1,
+                size: request.dimensions || '1024x1024'
+            })
+        });
+
+        const data = await response.json();
+        return {
+            imageUrl: data.data[0].url,
+            revisedPrompt: data.data[0].revised_prompt
+        };
     }
 }

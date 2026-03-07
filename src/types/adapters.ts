@@ -1,12 +1,13 @@
 import { LemuraAdapterError } from './errors.js';
 import { IToolDefinition } from './tools.js';
+import { ContentBlock } from './context.js';
 
 /** Represents a single message in the provider format */
 export interface NormalizedMessage {
     /** The role of the message sender */
     role: 'system' | 'user' | 'assistant' | 'tool';
-    /** The text content of the message */
-    content: string;
+    /** The text or multimodal content of the message */
+    content: string | ContentBlock[];
     /** Name of the tool, required if role is 'tool' */
     name?: string;
     /** Tool calls made by the assistant, present if role is 'assistant' */
