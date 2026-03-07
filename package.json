@@ -1,0 +1,68 @@
+{
+  "name": "lemura",
+  "version": "1.0.0",
+  "description": "Provider-agnostic agentic AI runtime",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.mjs",
+      "require": "./dist/adapters/index.js"
+    },
+    "./context": {
+      "types": "./dist/context/index.d.ts",
+      "import": "./dist/context/index.mjs",
+      "require": "./dist/context/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.mjs",
+      "require": "./dist/tools/index.js"
+    },
+    "./skills": {
+      "types": "./dist/skills/index.d.ts",
+      "import": "./dist/skills/index.mjs",
+      "require": "./dist/skills/index.js"
+    },
+    "./rag": {
+      "types": "./dist/rag/index.d.ts",
+      "import": "./dist/rag/index.mjs",
+      "require": "./dist/rag/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "skills",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:docs": "vitest run tests/docs/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist coverage .turbo",
+    "docs:api": "typedoc --out docs/api src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.24",
+    "@vitest/coverage-v8": "^1.0.0",
+    "tsup": "^8.0.0",
+    "typedoc": "^0.28.17",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
