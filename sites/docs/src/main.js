@@ -127,12 +127,12 @@ const icons = {
 }
 
 const colorMap = {
-  primary: 'text-primary-400 bg-primary-500/10 border-primary-500/20',
-  purple: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
-  cyan: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
-  amber: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-  emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  rose: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+  primary: 'text-primary-600 bg-primary-500/10 border-primary-500/20',
+  purple: 'text-purple-600 bg-purple-500/10 border-purple-500/20',
+  cyan: 'text-cyan-600 bg-cyan-500/10 border-cyan-500/20',
+  amber: 'text-amber-600 bg-amber-500/10 border-amber-500/20',
+  emerald: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20',
+  rose: 'text-rose-600 bg-rose-500/10 border-rose-500/20',
 }
 
 // ============================================================
@@ -147,16 +147,16 @@ function renderHome() {
       <!-- NAV -->
       <nav class="nav-blur h-20 px-6 lg:px-12 flex items-center justify-between w-full max-w-7xl mx-auto">
         <a href="#/" class="flex items-center gap-3">
-          <div class="glass-border rounded-xl p-1.5 bg-white/5">
+          <div class="glass-border rounded-xl p-1.5 bg-black/5">
             <img src="/lemura-logo.png" class="w-6 h-6 rounded-lg" />
           </div>
-          <span class="font-display font-black text-xl text-white tracking-tighter">lemura</span>
+          <span class="font-display font-black text-xl text-slate-900 tracking-tighter">lemura</span>
         </a>
 
-        <div class="hidden md:flex items-center gap-8 text-[11px] font-black uppercase tracking-widest text-slate-500">
-          <a href="#/docs/getting-started" class="hover:text-white transition-colors">Documentation</a>
-          <a href="#/docs/adapters" class="hover:text-white transition-colors">Adapters</a>
-          <a href="https://github.com/lemura-ai/lemura" target="_blank" class="flex items-center gap-2 hover:text-white transition-colors">${icons.github} GitHub</a>
+        <div class="hidden md:flex items-center gap-8 text-[11px] font-black uppercase tracking-widest text-slate-400">
+          <a href="#/docs/getting-started" class="hover:text-slate-900 transition-colors">Documentation</a>
+          <a href="#/docs/adapters" class="hover:text-slate-900 transition-colors">Adapters</a>
+          <a href="https://github.com/lemura-ai/lemura" target="_blank" class="flex items-center gap-2 hover:text-slate-900 transition-colors">${icons.github} GitHub</a>
         </div>
 
         <a href="#/docs/getting-started" class="btn-primary">
@@ -195,22 +195,22 @@ function renderHome() {
         <!-- TERMINAL PREVIEW -->
         <div class="w-full max-w-4xl animate-fade-up" style="animation-delay: 400ms">
            <div class="code-block-wrapper">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-black/5 bg-black/[0.02]">
               <div class="flex gap-2">
-                <div class="w-3 h-3 rounded-full bg-white/10"></div>
-                <div class="w-3 h-3 rounded-full bg-white/10"></div>
-                <div class="w-3 h-3 rounded-full bg-white/10"></div>
+                <div class="w-3 h-3 rounded-full bg-black/10"></div>
+                <div class="w-3 h-3 rounded-full bg-black/10"></div>
+                <div class="w-3 h-3 rounded-full bg-black/10"></div>
               </div>
-              <span class="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-slate-700">example.ts</span>
+              <span class="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">example.ts</span>
             </div>
             <div class="p-8 text-left font-mono text-[13px] leading-relaxed">
-              <div><span class="text-purple-400">import</span> { <span class="text-blue-400">SessionManager</span>, <span class="text-blue-400">OpenAIAdapter</span> } <span class="text-purple-400">from</span> <span class="text-emerald-400">'lemura'</span>;</div>
-              <div class="mt-4"><span class="text-purple-400">const</span> agent <span class="text-purple-400">=</span> <span class="text-purple-400">new</span> <span class="text-blue-400">SessionManager</span>({</div>
-              <div class="pl-6"><span class="text-blue-300">adapter</span>: <span class="text-purple-400">new</span> <span class="text-blue-400">OpenAIAdapter</span>({ <span class="text-blue-300">apiKey</span>: <span class="text-blue-300">process</span>.env.<span class="text-blue-300">OPENAI_KEY</span> }),</div>
-              <div class="pl-6"><span class="text-blue-300">tools</span>: [<span class="text-blue-300">search</span>, <span class="text-blue-300">coding_env</span>, <span class="text-blue-300">git</span>],</div>
-              <div class="pl-6"><span class="text-blue-300">enableGoalPlanning</span>: <span class="text-orange-400">true</span></div>
+              <div><span class="text-purple-600">import</span> { <span class="text-blue-600">SessionManager</span>, <span class="text-blue-600">OpenAIAdapter</span> } <span class="text-purple-600">from</span> <span class="text-emerald-600">'lemura'</span>;</div>
+              <div class="mt-4"><span class="text-purple-600">const</span> agent <span class="text-purple-600">=</span> <span class="text-purple-600">new</span> <span class="text-blue-600">SessionManager</span>({</div>
+              <div class="pl-6"><span class="text-blue-500">adapter</span>: <span class="text-purple-600">new</span> <span class="text-blue-600">OpenAIAdapter</span>({ <span class="text-blue-500">apiKey</span>: <span class="text-blue-500">process</span>.env.<span class="text-blue-500">OPENAI_KEY</span> }),</div>
+              <div class="pl-6"><span class="text-blue-500">tools</span>: [<span class="text-blue-500">search</span>, <span class="text-blue-500">coding_env</span>, <span class="text-blue-500">git</span>],</div>
+              <div class="pl-6"><span class="text-blue-500">enableGoalPlanning</span>: <span class="text-orange-600">true</span></div>
               <div>});</div>
-              <div class="mt-4"><span class="text-purple-400">await</span> agent.<span class="text-yellow-400">run</span>(<span class="text-emerald-400">"Optimize the database schema for the order system"</span>);</div>
+              <div class="mt-4"><span class="text-purple-600">await</span> agent.<span class="text-yellow-600">run</span>(<span class="text-emerald-600">"Optimize the database schema for the order system"</span>);</div>
             </div>
            </div>
         </div>
@@ -222,17 +222,17 @@ function renderHome() {
                 <div class="w-12 h-12 rounded-2xl flex items-center justify-center mb-6 border ${colorMap[doc.color]}">
                   ${icons[doc.icon]}
                 </div>
-                <h3 class="text-white font-bold text-lg mb-2">${doc.title}</h3>
-                <p class="text-slate-600 text-sm leading-relaxed">${doc.subtitle}</p>
+                <h3 class="text-slate-900 font-bold text-lg mb-2">${doc.title}</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">${doc.subtitle}</p>
               </a>
            `).join('')}
         </div>
 
         <!-- CALL TO ACTION -->
         <div class="mt-40 p-20 rounded-[3rem] w-full glass-card flex flex-col items-center animate-fade-up">
-           <h2 class="text-4xl lg:text-5xl font-black text-white tracking-tighter mb-6">Built for scale.</h2>
+           <h2 class="text-4xl lg:text-5xl font-black text-slate-900 tracking-tighter mb-6">Built for scale.</h2>
            <p class="text-slate-500 max-w-lg mb-10">Production-ready agent orchestration without the vendor lock-in.</p>
-           <a href="#/docs/getting-started" class="btn-primary text-lg px-12 py-4">Get Started</a>
+           <a href="#/docs/getting-started" class="btn-primary text-lg px-12 py-4 shadow-xl shadow-black/10">Get Started</a>
         </div>
 
       </main>
@@ -244,10 +244,10 @@ function renderHome() {
             <img src="/lemura-logo.png" class="w-5 h-5 grayscale" />
             <span class="font-display font-black text-sm tracking-tighter">LEMURA</span>
           </div>
-          <div class="flex gap-8 text-[10px] font-black uppercase tracking-widest text-slate-700">
-            <a href="https://github.com/lemura-ai/lemura" class="hover:text-white transition-colors">GitHub</a>
-            <a href="https://www.npmjs.com/package/lemura" class="hover:text-white transition-colors">NPM</a>
-            <span class="text-slate-800">MIT LICENSE</span>
+          <div class="flex gap-8 text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <a href="https://github.com/lemura-ai/lemura" class="hover:text-slate-900 transition-colors">GitHub</a>
+            <a href="https://www.npmjs.com/package/lemura" class="hover:text-slate-900 transition-colors">NPM</a>
+            <span class="text-slate-200">MIT LICENSE</span>
           </div>
         </div>
       </footer>
@@ -275,12 +275,12 @@ async function renderDocs(docId) {
 
       <!-- SIDEBAR -->
       <aside id="sidebar" class="sidebar-desktop w-[300px] fixed inset-y-0 left-0 z-40 flex flex-col">
-        <div class="px-8 flex items-center h-20 border-b border-white/5">
+        <div class="px-8 flex items-center h-20 border-b border-black/5">
           <a href="#/" class="flex items-center gap-3">
-             <div class="glass-border rounded-lg p-1 bg-white/5">
+             <div class="glass-border rounded-lg p-1 bg-black/5">
                 <img src="/lemura-logo.png" class="w-5 h-5" />
              </div>
-             <span class="font-display font-black text-white tracking-tighter text-lg">lemura</span>
+             <span class="font-display font-black text-slate-900 tracking-tighter text-lg">lemura</span>
           </a>
         </div>
 
@@ -299,7 +299,7 @@ async function renderDocs(docId) {
             </div>
           `).join('')}
           
-          <div class="pt-8 border-t border-white/5">
+          <div class="pt-8 border-t border-black/5">
             <div class="sidebar-category">Resources</div>
             <a href="https://github.com/lemura-ai/lemura" target="_blank" class="sidebar-link">
               ${icons.github} GitHub ${icons.externalLink}
@@ -307,9 +307,9 @@ async function renderDocs(docId) {
           </div>
         </nav>
 
-        <div class="p-6 border-t border-white/5">
+        <div class="p-6 border-t border-black/5">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-black uppercase text-slate-800 tracking-widest">Version v0.1.x</span>
+            <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Version v0.1.x</span>
             <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
           </div>
         </div>
@@ -319,11 +319,11 @@ async function renderDocs(docId) {
       <main class="flex-1 pl-[300px]">
         
         <!-- HEADER -->
-        <header class="sticky top-0 z-30 h-20 bg-surface-950/80 backdrop-blur-3xl border-b border-white/5 px-12 flex items-center justify-between">
-           <div class="flex items-center gap-3 text-[11px] font-black uppercase tracking-widest text-slate-700">
-             <a href="#/" class="hover:text-white transition-colors">Lemura</a>
+        <header class="sticky top-0 z-30 h-20 bg-white/80 backdrop-blur-3xl border-b border-black/5 px-12 flex items-center justify-between">
+           <div class="flex items-center gap-3 text-[11px] font-black uppercase tracking-widest text-slate-400">
+             <a href="#/" class="hover:text-slate-900 transition-colors">Lemura</a>
              <span class="opacity-20">/</span>
-             <span class="text-white/40">${doc.title}</span>
+             <span class="text-slate-900/40">${doc.title}</span>
            </div>
            
            <div class="flex items-center gap-4">
@@ -340,8 +340,8 @@ async function renderDocs(docId) {
 
           <article id="doc-content" class="markdown-content animate-fade-up" style="animation-delay: 100ms">
              <div class="flex items-center gap-4 py-20">
-                <div class="w-4 h-4 rounded-full border-2 border-white/10 border-t-white animate-spin"></div>
-                <span class="text-xs font-black uppercase tracking-widest text-slate-800">Hydrating Documentation...</span>
+                <div class="w-4 h-4 rounded-full border-2 border-slate-200 border-t-primary-500 animate-spin"></div>
+                <span class="text-xs font-black uppercase tracking-widest text-slate-400">Hydrating Documentation...</span>
              </div>
           </article>
 
@@ -386,8 +386,8 @@ async function renderDocs(docId) {
   } catch (err) {
     document.getElementById('doc-content').innerHTML = `
       <div class="py-20 text-center">
-        <h2 class="text-white text-2xl font-black mb-4">Error Loading Page</h2>
-        <p class="text-slate-600">${err.message}</p>
+        <h2 class="text-slate-900 text-2xl font-black mb-4">Error Loading Page</h2>
+        <p class="text-slate-500">${err.message}</p>
       </div>
     `
   }
