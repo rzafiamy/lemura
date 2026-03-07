@@ -5,7 +5,8 @@
 **A provider-agnostic, premium agentic AI runtime for the modern web.**
 
 [![npm version](https://img.shields.io/npm/v/lemura.svg?style=flat-square)](https://www.npmjs.com/package/lemura)
-[![license](https://img.shields.io/npm/l/lemura.svg?style=flat-square)](https://github.com/rzafiamy/lemura/blob/main/LICENSE)
+e[![license](https://img.shields.io/npm/l/lemura.svg?style=flat-square)](./LICENSE)
+[![docs](https://img.shields.io/badge/docs-lemura.makix.fr-blue?style=flat-square)](https://lemura.makix.fr)
 [![build](https://img.shields.io/github/actions/workflow/status/lemura-ai/lemura/ci.yml?branch=main&style=flat-square)](https://github.com/rzafiamy/lemura/actions)
 [![coverage](https://img.shields.io/codecov/c/github/lemura-ai/lemura?style=flat-square)](https://codecov.io/gh/lemura-ai/lemura)
 
@@ -76,7 +77,7 @@ main();
 
 ## 🧠 Core Concepts
 
-Explore the architecture and advanced capabilities of `lemura`:
+Explore the architecture and advanced capabilities of `lemura` at [lemura.makix.fr](https://lemura.makix.fr) or browse the local guides:
 
 - 🏁 [**Getting Started**](./docs/guides/getting-started.md) — Fundamental setup and concepts.
 - 🧹 [**Context Management**](./docs/guides/context-management.md) — Advanced compression strategies.
