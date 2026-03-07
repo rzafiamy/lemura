@@ -1,8 +1,9 @@
-import { SessionConfig, ContextWindow, TokenUsage, IProviderAdapter, ContentBlock, Turn } from '../types/index.js';
+import { SessionConfig, ContextWindow, IProviderAdapter, ContentBlock, Turn, ILogger } from '../types/index.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { SkillInjector } from '../skills/SkillInjector.js';
 import { LemuraMaxIterationsError } from '../types/index.js';
+import { DefaultLogger } from '../logger/DefaultLogger.js';
 import {
     readChunkTool,
     searchChunkTool,
@@ -22,10 +23,12 @@ export class SessionManager {
     private adapter: IProviderAdapter;
     private config: SessionConfig;
     private iterations: number = 0;
+    private logger: ILogger;
 
     constructor(config: SessionConfig) {
         this.config = config;
         this.adapter = config.adapter;
+        this.logger = config.logger || new DefaultLogger();
         this.contextManager = new ContextManager();
         this.toolRegistry = new ToolRegistry(config.tools || []);
         this.skillInjector = new SkillInjector(config.skills || []);
@@ -65,6 +68,11 @@ export class SessionManager {
     }
 
     async run(userMessage: string | ContentBlock[]): Promise<string> {
+        this.logger.info(`Starting new session run`, {
+            model: this.config.model,
+            message: Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage
+        });
+
         // 1. Prepare context with user's message
         this.context.turns.push({
             role: 'user',
@@ -80,6 +88,7 @@ export class SessionManager {
         // The ReAct Loop
         while (this.iterations < maxIts) {
             this.iterations++;
+            this.logger.debug(`ReAct Iteration ${this.iterations}/${maxIts}`);
 
             // 2. Prepare context window (compress if needed)
             this.context = await this.contextManager.prepare(this.context);
@@ -103,15 +112,26 @@ export class SessionManager {
             }
 
             // 3. Call provider
-            const response = await this.adapter.complete({
-                model: this.config.model,
-                messages: messages,
-                tools: this.toolRegistry.getAll(),
-                maxTokens: 1000 // default gen tokens
-            });
+            this.logger.debug(`Calling provider adapter (${this.adapter.name})...`);
+            let response;
+            try {
+                response = await this.adapter.complete({
+                    model: this.config.model,
+                    messages: messages,
+                    tools: this.toolRegistry.getAll(),
+                    maxTokens: 1000 // default gen tokens
+                });
+            } catch (err: any) {
+                const metadata = err.problem ? { problem: err.problem, hints: err.hints } : {};
+                this.logger.fatal(`Provider call failed: ${err.message}`, metadata);
+                throw err;
+            }
 
             // 4. Parse response
             if (response.finishReason === 'tool_call' && response.toolCalls) {
+                this.logger.info(`Assistant requested ${response.toolCalls.length} tool calls`, {
+                    tools: response.toolCalls.map(tc => tc.name)
+                });
                 // Execute tool calls
                 const toolResults = [];
                 for (const tc of response.toolCalls) {
@@ -120,19 +140,17 @@ export class SessionManager {
                         const executeContext: any = {
                             sessionId: 'default',
                             turnIndex: this.context.turns.length,
-                            logger: this.config.logger || console,
+                            logger: this.logger,
                             stmRegistry: this.config.stmRegistry,
                             scratchpad: this.context.scratchpad
                         };
                         if (this.config.ragAdapter) {
                             executeContext.ragAdapter = this.config.ragAdapter;
                         }
-                        const result = await this.toolRegistry.execute(tc.name, args, executeContext);
 
-                        // Handle special return values from STM/Scratchpad tools if they return specific update instructions
-                        // Or just let them update the registry/context directly if they have access.
-                        // Actually, if a tool updates context.scratchpad, we need to capture it.
-                        // Since executeContext is local, tools like write_scratchpad need to return the new state.
+                        this.logger.debug(`Executing tool: ${tc.name}`, { args: tc.arguments });
+                        const result = await this.toolRegistry.execute(tc.name, args, executeContext);
+                        this.logger.debug(`Tool ${tc.name} returned successfully`);
 
                         let finalResult = result;
                         if (typeof result === 'object' && result !== null) {
@@ -152,6 +170,10 @@ export class SessionManager {
 
                         toolResults.push({ toolCallId: tc.id, content });
                     } catch (e: any) {
+                        this.logger.error(`Tool ${tc.name} execution failed: ${e.message}`, {
+                            problem: e.problem || `Tool ${tc.name} failed to execute properly.`,
+                            hints: e.hints || ['Check the tool parameters and ensure the required services are running.']
+                        });
                         toolResults.push({ toolCallId: tc.id, content: `Error: ${e.message}` });
                     }
                 }
@@ -187,7 +209,7 @@ export class SessionManager {
             }
 
             // If stop/final -> return response to caller
-            if (response.finishReason === 'stop' || response.finishReason === 'max_tokens') {
+            if (response.finishReason === 'stop' || response.finishReason === 'max_tokens' || response.finishReason === 'error') {
                 const finalTurn: Turn = {
                     role: 'assistant',
                     content: response.content,
@@ -197,10 +219,16 @@ export class SessionManager {
                 };
                 this.context.turns.push(finalTurn);
                 if (this.config.onTurn) this.config.onTurn(finalTurn);
+                this.logger.info(`Run completed successfully`);
                 return response.content;
             }
         }
 
-        throw new LemuraMaxIterationsError(`Exceeded max iterations of ${maxIts}`);
+        const maxItsErr = new LemuraMaxIterationsError(`Exceeded max iterations of ${maxIts}`);
+        this.logger.fatal(maxItsErr.message, {
+            problem: 'The agent entered an infinite loop or took too many steps to resolve the task.',
+            hints: ['Increase maxIterations if the task is complex.', 'Check if tools are returning consistent results.']
+        });
+        throw maxItsErr;
     }
 }

@@ -1,11 +1,5 @@
 import { IRAGAdapter } from './rag.js';
-
-export interface ILogger {
-    debug(message: string, ...args: unknown[]): void;
-    info(message: string, ...args: unknown[]): void;
-    warn(message: string, ...args: unknown[]): void;
-    error(message: string, ...args: unknown[]): void;
-}
+import { ILogger } from './logger.js';
 
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 

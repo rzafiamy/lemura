@@ -101,7 +101,37 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
                 }
 
                 const errorText = await response.text().catch(() => '');
-                throw new LemuraAdapterError(`HTTP ${response.status}: ${errorText}`, 'HTTP_ERROR', { status: response.status });
+                let problem = 'The server replied with an error during the API call.';
+                let hints = ['Check the API documentation for the provider you are using.'];
+
+                if (response.status === 401) {
+                    problem = 'Authentication failed. The API key is invalid or missing.';
+                    hints = [
+                        'Ensure your API key is correctly configured in the adapter or environment variables.',
+                        'Check if the API key has expired or been revoked.'
+                    ];
+                } else if (response.status === 404) {
+                    problem = 'The requested resource or model was not found.';
+                    hints = [
+                        'Verify that the baseUrl is correct (e.g., https://api.openai.com/v1).',
+                        'Check if the model name is correct and available for your account.',
+                        'Ensure you are not appending extra paths to the baseUrl.'
+                    ];
+                } else if (response.status === 429) {
+                    problem = 'Rate limit exceeded.';
+                    hints = [
+                        'Wait a few seconds before retrying.',
+                        'Check your usage limits and billing status on the provider dashboard.'
+                    ];
+                }
+
+                throw new LemuraAdapterError(
+                    `HTTP ${response.status}: ${errorText}`,
+                    'HTTP_ERROR',
+                    { status: response.status, body: errorText },
+                    problem,
+                    hints
+                );
             } catch (err) {
                 if (err instanceof LemuraAdapterError) throw err;
 
@@ -111,10 +141,27 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 }
-                throw new LemuraAdapterError(`Network request failed: ${err instanceof Error ? err.message : String(err)}`, 'NETWORK_ERROR', err);
+
+                throw new LemuraAdapterError(
+                    `Network request failed: ${err instanceof Error ? err.message : String(err)}`,
+                    'NETWORK_ERROR',
+                    err,
+                    'A network error occurred while connecting to the provider.',
+                    [
+                        'Check your internet connection.',
+                        'Verify that the baseUrl is reachable from your network.',
+                        'Check for proxy or firewall settings that might block the request.'
+                    ]
+                );
             }
         }
-        throw new LemuraAdapterError('Max retries exceeded', 'MAX_RETRIES');
+        throw new LemuraAdapterError(
+            'Max retries exceeded',
+            'MAX_RETRIES',
+            undefined,
+            'The request failed after multiple retry attempts.',
+            ['Check if the provider service is down or experiencing high load.']
+        );
     }
 
     private mapFinishReason(reason: string | null): CompletionResponse['finishReason'] {

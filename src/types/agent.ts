@@ -1,6 +1,7 @@
 import { IProviderAdapter } from './adapters.js';
 import { IContextStrategy } from './context.js';
-import { IToolDefinition, ILogger } from './tools.js';
+import { IToolDefinition } from './tools.js';
+import { ILogger } from './logger.js';
 import { ISkill } from './skills.js';
 import { IRAGAdapter } from './rag.js';
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';

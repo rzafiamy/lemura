@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Structured logging system with colors and severity levels (FATAL, ERROR, WARN, INFO, DEBUG).
+- Integrated logging into `SessionManager` and `OpenAICompatibleAdapter`.
+- Added `problem` and `hints` to `LemuraError` for better end-user feedback.
+- Dedicated `ILogger` interface and `DefaultLogger` implementation.
+- Short Term Memory (STM) system for persistent memory across session boundaries
+- Scratchpad tools for managing agent's internal reasoning state
+- `ShortTermMemoryRegistry` for memory item lifecycle management
+- `summarize_sandwich` tool for context compression using sandwich strategy
+
+### Changed
+- `SessionManager` — Core ReAct runtime integration entry point, now integrated with logging.
+- `OpenAICompatibleAdapter` — Reference adapter for OpenAI, now integrated with logging.
+
+### Added (Core)
 - `OpenAICompatibleAdapter` — Reference adapter for OpenAI and standard API-compatible providers.
 - `ContextManager` — Core context logic coordinating multiple string reduction behaviors.
 - `SandwichCompressionStrategy` — Strategy for preserving recency and foundation context.
