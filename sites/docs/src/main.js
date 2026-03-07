@@ -264,6 +264,10 @@ function renderHome() {
         <div class="hidden md:flex items-center gap-8 text-[11px] font-black uppercase tracking-widest text-slate-400">
           <a href="#/docs/getting-started" class="hover:text-slate-900 transition-colors">Documentation</a>
           <a href="#/docs/adapters" class="hover:text-slate-900 transition-colors">Adapters</a>
+          <button class="flex items-center gap-2 hover:text-slate-900 transition-colors" onclick="openSearch()">
+            ${icons.search} Search
+            <span class="search-kbd">⌘K</span>
+          </button>
           <a href="https://github.com/rzafiamy/lemura" target="_blank" class="flex items-center gap-2 hover:text-slate-900 transition-colors">${icons.github} GitHub</a>
         </div>
 
@@ -490,6 +494,10 @@ async function renderDocs(docId) {
            </div>
            
            <div class="flex items-center gap-4">
+              <button class="btn-ghost flex items-center gap-2" onclick="openSearch()" title="Search (Cmd+K)">
+                ${icons.search} 
+                <span class="search-kbd bg-transparent shadow-none border-none opacity-60">⌘K</span>
+              </button>
               <a href="https://github.com/rzafiamy/lemura" target="_blank" class="btn-ghost" title="Star on GitHub">${icons.github}</a>
            </div>
         </header>
@@ -623,6 +631,154 @@ function handleRoute() {
     renderHome()
   }
 }
+
+// ============================================================
+// SEARCH ENGINE
+// ============================================================
+
+let searchModalInitialized = false;
+
+function setupSearch() {
+  if (searchModalInitialized) return;
+  searchModalInitialized = true;
+
+  const container = document.createElement('div');
+  container.innerHTML = `
+    <div id="search-backdrop" class="search-modal-backdrop" onclick="if(event.target===this) closeSearch()">
+      <div class="search-modal">
+        <div class="search-input-wrapper">
+          ${icons.search}
+          <input type="text" id="search-input" class="search-input" placeholder="Search documentation..." autocomplete="off" spellcheck="false" />
+          <div class="search-shortcut-hint">
+            <span class="search-kbd">ESC</span>
+          </div>
+        </div>
+        <div id="search-results" class="search-results"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(container);
+
+  const input = document.getElementById('search-input');
+
+  input.addEventListener('input', (e) => {
+    executeSearch(e.target.value);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const results = document.querySelectorAll('.search-result-item');
+    if (!results.length) return;
+
+    let activeIdx = Array.from(results).findIndex(r => r.getAttribute('aria-selected') === 'true');
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (activeIdx >= 0) results[activeIdx].setAttribute('aria-selected', 'false');
+      activeIdx = (activeIdx + 1) % results.length;
+      results[activeIdx].setAttribute('aria-selected', 'true');
+      results[activeIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (activeIdx >= 0) results[activeIdx].setAttribute('aria-selected', 'false');
+      activeIdx = (activeIdx - 1 + results.length) % results.length;
+      results[activeIdx].setAttribute('aria-selected', 'true');
+      results[activeIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0) {
+        results[activeIdx].click();
+      }
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      openSearch();
+    }
+    if (e.key === 'Escape') {
+      closeSearch();
+    }
+  });
+
+  window.openSearch = function () {
+    const backdrop = document.getElementById('search-backdrop');
+    backdrop.classList.add('open');
+    const input = document.getElementById('search-input');
+    input.value = '';
+    executeSearch('');
+    setTimeout(() => input.focus(), 50);
+  };
+
+  window.closeSearch = function () {
+    document.getElementById('search-backdrop').classList.remove('open');
+  };
+}
+
+function executeSearch(query) {
+  const container = document.getElementById('search-results');
+  const q = query.toLowerCase().trim();
+
+  // Create a mapping of docId to parent doc to easily get coloring and categories
+  const getParentDoc = (pageId) => docs.find(d => d.id === pageId || d.children?.some(c => c.id === pageId));
+
+  if (!q) {
+    container.innerHTML = '<div class="search-empty">Type to start searching "' + allPages.length + '" documents...</div>';
+    // Show some default results when empty - maybe top categories
+    return;
+  }
+
+  const results = allPages.map(page => {
+    let score = 0;
+    const parentDoc = getParentDoc(page.id);
+    const category = page.category || parentDoc?.category || 'Doc';
+    const sub = page.subtitle || parentDoc?.subtitle || '';
+
+    // Fuzzy matching points
+    const titleMatch = page.title.toLowerCase().includes(q);
+    const subMatch = sub.toLowerCase().includes(q);
+    const catMatch = category.toLowerCase().includes(q);
+
+    if (titleMatch) score += 10;
+    if (subMatch) score += 5;
+    if (catMatch) score += 1;
+
+    // Boost exact starts
+    if (page.title.toLowerCase().startsWith(q)) score += 5;
+
+    return { page, parentDoc, category, sub, score };
+  }).filter(r => r.score > 0).sort((a, b) => b.score - a.score);
+
+  if (results.length === 0) {
+    container.innerHTML = '<div class="search-empty">No results found for "' + query + '"</div>';
+    return;
+  }
+
+  container.innerHTML = results.slice(0, 10).map((r, i) => {
+    const { page, parentDoc, category, sub } = r;
+    const isSelected = i === 0 ? 'true' : 'false';
+    const docColor = parentDoc?.color || 'primary';
+    const cColor = colorMap[docColor];
+    const docIcon = page.icon || parentDoc?.icon || 'zap';
+    const iIcon = getIconHtml(docIcon, 16);
+
+    return `
+      <a href="#/docs/${page.id}" class="search-result-item" aria-selected="${isSelected}" onclick="closeSearch()">
+        <div class="search-result-icon border ${cColor}">${iIcon}</div>
+        <div class="search-result-content">
+          <div class="search-result-title">
+            ${page.title}
+            <span class="search-result-badge">${category}</span>
+          </div>
+          <div class="search-result-subtitle">${sub}</div>
+        </div>
+      </a>
+    `;
+  }).join('');
+}
+
+// Init search
+setupSearch();
 
 window.addEventListener('hashchange', handleRoute)
 handleRoute()

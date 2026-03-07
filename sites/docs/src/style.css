@@ -438,3 +438,79 @@ pre code.hljs {
 .hljs-number {
   color: #ea580c;
 }
+
+/* ==================== SEARCH MODAL ==================== */
+
+.search-modal-backdrop {
+  @apply fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300 flex items-start justify-center pt-[10vh] px-4;
+}
+
+.search-modal-backdrop.open {
+  @apply opacity-100 pointer-events-auto;
+}
+
+.search-modal {
+  @apply w-full max-w-2xl bg-white rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] border border-slate-200 overflow-hidden transform scale-95 opacity-0 transition-all duration-300 flex flex-col;
+  max-height: 80vh;
+}
+
+.search-modal-backdrop.open .search-modal {
+  @apply scale-100 opacity-100;
+}
+
+.search-input-wrapper {
+  @apply relative flex-shrink-0 border-b border-slate-100;
+}
+
+.search-input-wrapper svg {
+  @apply absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 w-6 h-6;
+}
+
+.search-input {
+  @apply w-full bg-transparent pl-16 pr-24 py-5 text-lg text-slate-900 placeholder-slate-400 outline-none font-medium;
+}
+
+.search-shortcut-hint {
+  @apply absolute right-6 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-50;
+}
+
+.search-kbd {
+  @apply flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-mono font-black text-slate-500 shadow-sm;
+}
+
+.search-results {
+  @apply flex-1 overflow-y-auto w-full p-2;
+}
+
+.search-result-item {
+  @apply flex items-start gap-4 p-4 rounded-xl hover:bg-slate-50 transition-colors w-full text-left cursor-pointer border border-transparent;
+}
+
+.search-result-item[aria-selected="true"],
+.search-result-item:focus {
+  @apply bg-primary-50 border-primary-100 outline-none;
+}
+
+.search-result-icon {
+  @apply w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5;
+}
+
+.search-result-content {
+  @apply flex-1 min-w-0;
+}
+
+.search-result-title {
+  @apply text-sm font-bold text-slate-900 flex items-center gap-2;
+}
+
+.search-result-subtitle {
+  @apply text-xs text-slate-500 line-clamp-2 mt-1;
+}
+
+.search-result-badge {
+  @apply text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0;
+}
+
+.search-empty {
+  @apply px-6 py-12 text-center text-slate-500 text-sm;
+}
