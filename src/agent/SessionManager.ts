@@ -1,4 +1,4 @@
-import { SessionConfig, ContextWindow, TokenUsage, IProviderAdapter, ContentBlock } from '../types/index.js';
+import { SessionConfig, ContextWindow, TokenUsage, IProviderAdapter, ContentBlock, Turn } from '../types/index.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { SkillInjector } from '../skills/SkillInjector.js';
@@ -111,25 +111,29 @@ export class SessionManager {
                 }
 
                 // Add assistant turn with tool calls
-                this.context.turns.push({
+                const assistantTurn: Turn = {
                     role: 'assistant',
                     content: response.content || '',
                     tokenCount: this.adapter.estimateTokens(response.content || '') + 50, // rough tool estimate
                     turnIndex: this.context.turns.length,
                     compressed: false,
                     toolCalls: response.toolCalls
-                });
+                };
+                this.context.turns.push(assistantTurn);
+                if (this.config.onTurn) this.config.onTurn(assistantTurn);
 
                 // Add tool observation turns
                 for (const res of toolResults) {
-                    this.context.turns.push({
+                    const toolTurn: Turn = {
                         role: 'tool',
                         content: res.content,
                         tokenCount: this.adapter.estimateTokens(res.content),
                         turnIndex: this.context.turns.length,
                         compressed: false,
                         toolResults: [res]
-                    });
+                    };
+                    this.context.turns.push(toolTurn);
+                    if (this.config.onTurn) this.config.onTurn(toolTurn);
                 }
 
                 // Continue loop
@@ -138,13 +142,15 @@ export class SessionManager {
 
             // If stop/final -> return response to caller
             if (response.finishReason === 'stop' || response.finishReason === 'max_tokens') {
-                this.context.turns.push({
+                const finalTurn: Turn = {
                     role: 'assistant',
                     content: response.content,
                     tokenCount: response.usage.completionTokens,
                     turnIndex: this.context.turns.length,
                     compressed: false
-                });
+                };
+                this.context.turns.push(finalTurn);
+                if (this.config.onTurn) this.config.onTurn(finalTurn);
                 return response.content;
             }
         }

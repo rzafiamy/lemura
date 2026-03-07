@@ -59,4 +59,6 @@ export interface SessionConfig {
     goalInjectionPosition?: 'system_prompt' | 'pre_turn';
     /** Skill budget */
     skillTokenBudget?: number;
+    /** Callback for each turn in the session */
+    onTurn?: (turn: any) => void;
 }
