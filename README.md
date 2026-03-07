@@ -1,6 +1,4 @@
-<align="center">
   <img src="./docs/assets/logo.png" alt="lemura logo" width="200" />
-</align>
 
 # lemura
 
