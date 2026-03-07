@@ -245,6 +245,7 @@ const icons = {
   'git-branch': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`,
   repeat: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
   'minimize-2': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" x2="3" y1="14" y2="21"/><line x1="21" x2="14" y1="3" y2="10"/></svg>`,
+  pause: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
 }
 
 const colorMap = {
@@ -268,6 +269,11 @@ function getIconHtml(name, size = 18) {
 // ============================================================
 // HOME PAGE
 // ============================================================
+
+// State for audio player
+let activeAudio = null
+let activeAnimFrame = null
+let activeAudioCtx = null
 
 function renderHome() {
   document.title = 'lemura — Premium Agentic AI Runtime'
@@ -531,6 +537,23 @@ async function renderDocs(docId) {
             ${icons[docIcon]}
           </div>
 
+          <!-- AUDIO PLAYER -->
+          <div id="audio-player-root" class="audio-player-root hidden">
+            <div id="audio-player-container" class="audio-player-glass">
+               <button id="audio-play-pause" class="audio-play-btn">
+                 ${icons.play}
+               </button>
+               <div class="audio-spectrogram-container">
+                 <canvas id="audio-canvas" style="width:100%;height:40px;display:block;border-radius:12px;"></canvas>
+               </div>
+               <div class="audio-time">
+                 <span id="audio-current">0:00</span>
+                 <span id="audio-duration" class="opacity-40">0:00</span>
+               </div>
+            </div>
+          </div>
+
+
           <article id="doc-content" class="markdown-content animate-fade-up" style="animation-delay: 100ms">
              <div class="flex items-center gap-4 py-20">
                 <div class="w-4 h-4 rounded-full border-2 border-slate-200 border-t-primary-500 animate-spin"></div>
@@ -595,6 +618,7 @@ async function renderDocs(docId) {
     // Setup behavior
     setupCopyButtons()
     setupReadingProgress()
+    initAudioPlayer(docId)
     window.scrollTo({ top: 0, behavior: 'instant' })
 
   } catch (err) {
@@ -797,6 +821,155 @@ function executeSearch(query) {
       </a>
     `;
   }).join('');
+}
+
+// ============================================================
+// AUDIO PLAYER LOGIC (lightweight — zero cost on page load)
+// ============================================================
+
+function teardownAudio() {
+  if (activeAnimFrame) { cancelAnimationFrame(activeAnimFrame); activeAnimFrame = null }
+  if (activeAudio) { activeAudio.pause(); activeAudio.src = ''; activeAudio = null }
+  if (activeAudioCtx) { try { activeAudioCtx.close() } catch (e) { }; activeAudioCtx = null }
+}
+
+function initAudioPlayer(docId) {
+  // Only for root category pages
+  const isRoot = docs.some(d => d.id === docId)
+  const playerRoot = document.getElementById('audio-player-root')
+
+  teardownAudio()
+
+  if (!isRoot || !playerRoot) { playerRoot?.classList.add('hidden'); return }
+
+  const audioUrl = `/audio/${docId}.wav`
+
+  // ── Build a throw-away probe to check existence without loading content
+  const probe = new Audio()
+  probe.preload = 'none'
+  probe.src = audioUrl
+
+  probe.addEventListener('error', () => { playerRoot.classList.add('hidden') }, { once: true })
+  probe.addEventListener('canplay', () => {
+    probe.src = '' // release probe
+    mountPlayer(audioUrl, playerRoot)
+  }, { once: true })
+
+  // Trigger just enough metadata load to check availability
+  probe.load()
+}
+
+function mountPlayer(audioUrl, playerRoot) {
+  playerRoot.classList.remove('hidden')
+
+  const audio = new Audio()
+  audio.preload = 'metadata' // only metadata, not full decode
+  audio.src = audioUrl
+  activeAudio = audio
+
+  const canvas = document.getElementById('audio-canvas')
+  const playBtn = document.getElementById('audio-play-pause')
+  const curEl = document.getElementById('audio-current')
+  const durEl = document.getElementById('audio-duration')
+
+  // Keep canvas pixel buffer in sync with its CSS size
+  const syncCanvasSize = () => {
+    canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1)
+    canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1)
+  }
+  syncCanvasSize()
+  const ro = new ResizeObserver(syncCanvasSize)
+  ro.observe(canvas)
+
+  const fmt = (s) => {
+    const m = Math.floor(s / 60)
+    return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`
+  }
+
+  audio.addEventListener('loadedmetadata', () => { durEl.textContent = fmt(audio.duration) })
+  audio.addEventListener('timeupdate', () => { curEl.textContent = fmt(audio.currentTime); drawProgress(canvas, audio) })
+  audio.addEventListener('ended', () => { playBtn.innerHTML = icons.play; stopViz() })
+
+  playBtn.onclick = () => {
+    // Resume AudioContext on user gesture (browser policy)
+    if (!activeAudioCtx) setupAnalyser(audio, canvas)
+    if (audio.paused) {
+      audio.play()
+      playBtn.innerHTML = icons.pause
+      startViz(canvas, audio)
+    } else {
+      audio.pause()
+      playBtn.innerHTML = icons.play
+      stopViz()
+    }
+  }
+}
+
+function setupAnalyser(audio, canvas) {
+  try {
+    activeAudioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    const source = activeAudioCtx.createMediaElementSource(audio)
+    const analyser = activeAudioCtx.createAnalyser()
+    analyser.fftSize = 256
+    source.connect(analyser)
+    analyser.connect(activeAudioCtx.destination)
+    canvas._analyser = analyser
+    canvas._dataArray = new Uint8Array(analyser.frequencyBinCount)
+  } catch (e) {
+    // Web Audio API not available — fallback to progress-bar only
+  }
+}
+
+function startViz(canvas, audio) {
+  const ctx = canvas.getContext('2d')
+  const analyser = canvas._analyser
+  const dataArray = canvas._dataArray
+
+  function draw() {
+    activeAnimFrame = requestAnimationFrame(draw)
+    const W = canvas.width, H = canvas.height
+    ctx.clearRect(0, 0, W, H)
+
+    if (analyser) {
+      analyser.getByteFrequencyData(dataArray)
+      const barW = Math.max(2, W / dataArray.length - 1)
+      const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-500').trim() || '#0ea5e9'
+
+      dataArray.forEach((val, i) => {
+        const barH = (val / 255) * H
+        const alpha = 0.4 + (val / 255) * 0.6
+        ctx.fillStyle = `rgba(14, 165, 233, ${alpha})`
+        ctx.beginPath()
+        ctx.roundRect(i * (barW + 1), H - barH, barW, barH, 2)
+        ctx.fill()
+      })
+    } else {
+      // Fallback: animated progress bar
+      drawProgress(canvas, audio)
+    }
+  }
+  draw()
+}
+
+function drawProgress(canvas, audio) {
+  const ctx = canvas.getContext('2d')
+  const W = canvas.width, H = canvas.height
+  if (!ctx || !audio.duration) return
+  ctx.clearRect(0, 0, W, H)
+  const pct = audio.currentTime / audio.duration
+  // Track
+  ctx.fillStyle = 'rgba(0,0,0,0.06)'
+  ctx.beginPath(); ctx.roundRect(0, H / 2 - 2, W, 4, 2); ctx.fill()
+  // Progress
+  ctx.fillStyle = '#0ea5e9'
+  ctx.beginPath(); ctx.roundRect(0, H / 2 - 2, W * pct, 4, 2); ctx.fill()
+  // Thumb
+  ctx.fillStyle = '#0ea5e9'
+  ctx.beginPath(); ctx.arc(W * pct, H / 2, 6, 0, Math.PI * 2); ctx.fill()
+}
+
+function stopViz() {
+  if (activeAnimFrame) { cancelAnimationFrame(activeAnimFrame); activeAnimFrame = null }
 }
 
 // Init search
