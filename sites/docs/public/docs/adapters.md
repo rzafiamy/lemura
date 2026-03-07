@@ -2,7 +2,7 @@
 
 Adapters are lemura's gateway to the outside world. Their only job is to **normalize** different AI provider APIs into lemura's internal types — no business logic, only translation.
 
-> **Makix context:** Makix is deployed on INfodev's OpenAI-compatible API (Qwen 3.5 4B, 16K tokens). Because all provider interaction goes through `IProviderAdapter`, switching from local Ollama during development to INfodev in production requires changing exactly **one object** — nothing else in Makix changes.
+> 🌿 **Makix Context** 🔌: Makix is deployed on INfodev's OpenAI-compatible API (Qwen 3.5 4B, 16K tokens). Because all provider interaction goes through `IProviderAdapter`, switching from local Ollama during development to INfodev in production requires changing exactly **one object** — nothing else in Makix changes.
 
 ![Provider Adapters — Normalization Flow](/images/adapters-diagram.png)
 

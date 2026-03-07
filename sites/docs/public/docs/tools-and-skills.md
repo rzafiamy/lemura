@@ -2,7 +2,7 @@
 
 Tools give your agent the ability to **act** in the world. Skills give it the ability to **think** in a specific way. Together they transform a raw LLM into a specialized, capable agent.
 
-> **Makix context:** Makix uses 4 tools (`search_web`, `get_weather`, `manage_calendar`, `send_message`) and one personality skill (`friendly-assistant`) that makes every response warm, transparent, and trustworthy. This section covers everything you need to build and configure them.
+> 🌿 **Makix Context** 🔧: Makix uses 4 tools (`search_web`, `get_weather`, `manage_calendar`, `send_message`) and one personality skill (`friendly-assistant`) that makes every response warm, transparent, and trustworthy. This section covers everything you need to build and configure them.
 
 ![Tools & Skills — Act vs Think](/images/tools-skills-diagram.png)
 

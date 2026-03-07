@@ -2,7 +2,7 @@
 
 Context window management is lemura's **core differentiator**. Every production AI agent eventually hits the token limit — lemura prevents crashes by automatically compressing conversation history using a composable strategy stack.
 
-> **Makix context:** Makix runs on Qwen 3.5 4B with a **16K token context window**. A typical session uses ~3K tokens for system prompt + skill + tool definitions. That leaves ~13K for conversation — which fills up after a few days of daily use. This section shows how to keep Makix running indefinitely.
+> 🌿 **Makix Context** 🧠: Makix runs on Qwen 3.5 4B with a **16K token context window**. A typical session uses ~3K tokens for system prompt + skill + tool definitions. That leaves ~13K for conversation — which fills up after a few days of daily use. This section shows how to keep Makix running indefinitely.
 
 ![Context Management — Sandwich Compression Strategy](/images/context-management-diagram.png)
 

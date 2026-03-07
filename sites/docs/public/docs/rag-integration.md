@@ -4,7 +4,7 @@ RAG (Retrieval-Augmented Generation) lets your agent access a **knowledge base**
 
 lemura defines `IRAGAdapter`, an interface your app implements to connect its own embedding store. lemura stays provider-agnostic right down to the data layer.
 
-> **Makix context:** Makix keeps a **personal knowledge base** — the user's travel notes, preferences, meeting summaries, and saved decisions. When the user asks _"What did I decide about the Paris trip?"_, Makix queries this store instead of guessing. With a 16K context window, you can't stuff all your notes into context — RAG retrieves only the 3–5 most relevant ones.
+> 🌿 **Makix Context** 📚: Makix keeps a **personal knowledge base** — the user's travel notes, preferences, meeting summaries, and saved decisions. When the user asks _"What did I decide about the Paris trip?"_, Makix queries this store instead of guessing. With a 16K context window, you can't stuff all your notes into context — RAG retrieves only the 3–5 most relevant ones.
 
 ![RAG Integration — Retrieval Flow](/images/rag-integration-diagram.png)
 

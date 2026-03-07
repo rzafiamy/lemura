@@ -8,9 +8,7 @@
 
 ## Meet Makix
 
-Throughout these docs, every feature is illustrated by building **Makix**, a powerful personal AI assistant that can search the internet, fetch weather forecasts, read your calendar, send messages, and query your personal notes.
-
-> **Provider used in all examples:** INfodev's OpenAI-compatible API running **Qwen 3.5 4B**, 16K token context.
+> 🌿 **Makix Context** 🚀: Throughout these docs, every feature is illustrated by building **Makix**, a powerful assistant. Note that all examples use INfodev's OpenAI-compatible API running **Qwen 3.5 4B** with a 16K context window.
 
 ---
 

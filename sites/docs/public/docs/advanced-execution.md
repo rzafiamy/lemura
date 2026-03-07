@@ -2,7 +2,7 @@
 
 These techniques govern **how** the ReAct agent executes, recovers, and concludes. They are about execution discipline and reliability — distinct from context compression.
 
-> **Makix context:** When a user asks _"Research the best flights to Tokyo, check my calendar, cross-reference my notes, and email me a summary"_ — that single message requires 4 tools running in sequence, goal maintenance across many turns, and compressed tool outputs. This section shows how lemura handles all of it reliably.
+> 🌿 **Makix Context** 🛠️: When a user asks _"Research the best flights to Tokyo, check my calendar, cross-reference my notes, and email me a summary"_ — that single message requires 4 tools running in sequence, goal maintenance across many turns, and compressed tool outputs. This section shows how lemura handles all of it reliably.
 
 ![Advanced Runtime Execution — The 5 Techniques](/images/advanced-execution-diagram.png)
 

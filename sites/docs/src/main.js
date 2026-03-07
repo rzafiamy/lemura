@@ -170,7 +170,14 @@ renderer.table = function (token) {
 }
 
 renderer.blockquote = function ({ tokens }) {
-  return `<blockquote>${this.parser.parse(tokens)}</blockquote>`
+  const rawContent = this.parser.parse(tokens)
+
+  // Robust check for "Makix context" anywhere in the blockquote content
+  if (/Makix\s+context/i.test(rawContent)) {
+    return `<div class="makix-callout"><div class="glow"></div>${rawContent}</div>`
+  }
+
+  return `<blockquote>${rawContent}</blockquote>`
 }
 
 marked.use({
