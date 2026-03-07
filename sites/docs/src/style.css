@@ -177,6 +177,22 @@
     @apply callout-base bg-emerald-50 text-emerald-800 border-emerald-100;
   }
 
+  .doc-table th {
+    @apply px-6 py-4 bg-slate-50 text-slate-900 text-[10px] font-black uppercase tracking-widest border-b border-slate-100;
+  }
+
+  .doc-table td {
+    @apply px-6 py-4 border-b border-slate-50 text-sm transition-colors;
+  }
+
+  .doc-table tr:hover td {
+    @apply bg-slate-50/50;
+  }
+
+  .doc-table tr:last-child td {
+    @apply border-b-0;
+  }
+
   /* Docs Content */
   .markdown-content {
     @apply text-slate-600 text-[1.05rem] leading-[1.8];

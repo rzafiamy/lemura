@@ -71,20 +71,19 @@ const categories = [...new Set(docs.map(d => d.category))]
 
 const renderer = new marked.Renderer()
 
-renderer.code = function (code, lang) {
+renderer.code = function ({ text, lang }) {
   const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
   const highlighted = language !== 'plaintext'
-    ? hljs.highlight(typeof code === 'object' ? code.text : code, { language }).value
-    : hljs.highlightAuto(typeof code === 'object' ? code.text : code).value
+    ? hljs.highlight(text, { language }).value
+    : hljs.highlightAuto(text).value
 
-  const displayLang = (typeof code === 'object' ? code.lang : lang) || 'code'
-  const codeText = typeof code === 'object' ? code.text : code
+  const displayLang = lang || 'code'
 
   return `
     <div class="code-block-wrapper">
-      <div class="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-white/[0.02]">
+      <div class="flex items-center justify-between px-6 py-3 border-b border-black/5 bg-black/[0.02]">
         <span class="font-mono text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">${displayLang}</span>
-        <button class="copy-button" data-code="${encodeURIComponent(codeText)}">
+        <button class="copy-button" data-code="${encodeURIComponent(text)}">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
           Copy
         </button>
@@ -94,12 +93,40 @@ renderer.code = function (code, lang) {
   `
 }
 
-renderer.table = function (header, body) {
-  return `<div class="overflow-x-auto my-10"><table class="doc-table">${header}${body}</table></div>`
+renderer.table = function (token) {
+  let header = ''
+  let body = ''
+
+  // Build header
+  header += '<thead><tr>'
+  token.header.forEach(cell => {
+    header += `<th>${this.parser.parseInline(cell.tokens)}</th>`
+  })
+  header += '</tr></thead>'
+
+  // Build body
+  body += '<tbody>'
+  token.rows.forEach(row => {
+    body += '<tr>'
+    row.forEach(cell => {
+      body += `<td>${this.parser.parseInline(cell.tokens)}</td>`
+    })
+    body += '</tr>'
+  })
+  body += '</tbody>'
+
+  return `
+    <div class="overflow-x-auto my-10 border border-slate-100 rounded-3xl">
+      <table class="doc-table w-full text-left border-collapse">
+        ${header}
+        ${body}
+      </table>
+    </div>
+  `
 }
 
-renderer.blockquote = function (quote) {
-  return `<blockquote>${quote}</blockquote>`
+renderer.blockquote = function ({ tokens }) {
+  return `<blockquote>${this.parser.parse(tokens)}</blockquote>`
 }
 
 marked.use({
