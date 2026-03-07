@@ -8,8 +8,15 @@ export class LemuraError extends Error {
     /**
      * @param message - The error message
      * @param code - The error code for programmatic handling
+     * @param problem - A clear description of the problem for the end user
+     * @param hints - A list of suggestions to resolve the issue
      */
-    constructor(message: string, public readonly code: string) {
+    constructor(
+        message: string,
+        public readonly code: string,
+        public readonly problem?: string,
+        public readonly hints: string[] = []
+    ) {
         super(message);
         this.name = 'LemuraError';
         Object.setPrototypeOf(this, new.target.prototype);
@@ -34,8 +41,14 @@ export class LemuraToolNotFoundError extends LemuraError {
 
 /** Error thrown when an adapter encounters an API or formatting issue */
 export class LemuraAdapterError extends LemuraError {
-    constructor(message: string, code = 'ADAPTER_ERROR', public cause?: unknown) {
-        super(message, code);
+    constructor(
+        message: string,
+        code = 'ADAPTER_ERROR',
+        public cause?: any,
+        problem?: string,
+        hints: string[] = []
+    ) {
+        super(message, code, problem, hints);
         this.name = 'LemuraAdapterError';
     }
 }

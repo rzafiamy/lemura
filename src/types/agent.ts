@@ -3,6 +3,7 @@ import { IContextStrategy } from './context.js';
 import { IToolDefinition, ILogger } from './tools.js';
 import { ISkill } from './skills.js';
 import { IRAGAdapter } from './rag.js';
+import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 
 export interface ToolResponseEvaluation {
     relevanceScore: number;
@@ -61,4 +62,10 @@ export interface SessionConfig {
     skillTokenBudget?: number;
     /** Callback for each turn in the session */
     onTurn?: (turn: any) => void;
+
+    // STM and Limits
+    /** Short Term Memory Registry */
+    stmRegistry?: ShortTermMemoryRegistry;
+    /** Max tokens allowed for a single tool response */
+    maxTokensPerTool?: number;
 }

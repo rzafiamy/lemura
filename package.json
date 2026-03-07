@@ -50,6 +50,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "package": "pnpm pack --pack-destination ./package",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:docs": "vitest run tests/docs/",

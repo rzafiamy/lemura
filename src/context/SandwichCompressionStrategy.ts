@@ -69,4 +69,41 @@ export class SandwichCompressionStrategy implements IContextStrategy {
             compressionSummary: newCompressionSummary,
         };
     }
+
+    /**
+     * Applies sandwich compression specifically to a Short Term Memory item's content.
+     * Implements a 3-layer pipeline: Pre-Layer (encoding), Core Layer (dense summary), Post-Layer (refinement cues).
+     * 
+     * @param content - The heavy text content to compress
+     * @param instructions - Guiding instructions for the core layer summary
+     * @returns The three-layer sandwich result
+     */
+    async compressMemoryItem(content: string, instructions: string = 'Extract the key information'): Promise<{
+        preLayer: string;
+        coreLayer: string;
+        postLayer: string;
+    }> {
+        // Pre-Layer: Chunking and initial encoding
+        // Here we do a naive encoding representation to signify the pre-processed chunks
+        const estimatedChunks = Math.max(1, Math.ceil(this.adapter.estimateTokens(content) / 2000));
+        const preLayer = `[PRE-LAYER ENCODED: ${estimatedChunks} internal chunks]`;
+
+        // Core Layer: Dense summary sandwich with instructions
+        // We sandwich the content between the instructions to guide extraction
+        // If content is extremely large, we might trim it here, but ideally the provider streaming handles it.
+        const summaryResponse = await this.adapter.complete({
+            model: '',
+            messages: [{
+                role: 'user',
+                content: `### INSTRUCTIONS ###\n${instructions}\n\n### CONTENT ###\n${content}\n\n### INSTRUCTIONS ###\n${instructions}`
+            }]
+        });
+        const coreLayer = summaryResponse.content;
+
+        // Post-Layer: Decoding/Refinement hooks
+        // Indicates that the LLM can use tools to drill down into specific chunks
+        const postLayer = `[POST-LAYER DECODING: Use \`refine_layer\` or \`read_chunk\` tools to expand specific sections]`;
+
+        return { preLayer, coreLayer, postLayer };
+    }
 }

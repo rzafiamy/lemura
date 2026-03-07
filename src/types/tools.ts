@@ -7,11 +7,15 @@ export interface ILogger {
     error(message: string, ...args: unknown[]): void;
 }
 
+import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
+
 export interface ToolContext {
     sessionId: string;
     turnIndex: number;
     logger: ILogger;
     ragAdapter?: IRAGAdapter;
+    stmRegistry?: ShortTermMemoryRegistry;
+    scratchpad?: string;
 }
 
 export interface IToolDefinition {

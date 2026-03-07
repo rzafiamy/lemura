@@ -3,6 +3,16 @@ import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { SkillInjector } from '../skills/SkillInjector.js';
 import { LemuraMaxIterationsError } from '../types/index.js';
+import {
+    readChunkTool,
+    searchChunkTool,
+    listChunksTool,
+    updateChunkTool,
+    readScratchpadTool,
+    writeScratchpadTool,
+    removeScratchpadTool,
+    summarizeSandwichTool
+} from '../tools/builtin/short_term_memory.js';
 
 export class SessionManager {
     private contextManager: ContextManager;
@@ -22,6 +32,18 @@ export class SessionManager {
 
         for (const strategy of config.compressionStrategies || []) {
             this.contextManager.registerStrategy(strategy);
+        }
+
+        // Register STM and Scratchpad tools if registry is provided
+        if (config.stmRegistry) {
+            this.toolRegistry.register(readChunkTool);
+            this.toolRegistry.register(searchChunkTool);
+            this.toolRegistry.register(listChunksTool);
+            this.toolRegistry.register(updateChunkTool);
+            this.toolRegistry.register(readScratchpadTool);
+            this.toolRegistry.register(writeScratchpadTool);
+            this.toolRegistry.register(removeScratchpadTool);
+            this.toolRegistry.register(summarizeSandwichTool);
         }
 
         this.context = {
@@ -98,13 +120,37 @@ export class SessionManager {
                         const executeContext: any = {
                             sessionId: 'default',
                             turnIndex: this.context.turns.length,
-                            logger: this.config.logger || console
+                            logger: this.config.logger || console,
+                            stmRegistry: this.config.stmRegistry,
+                            scratchpad: this.context.scratchpad
                         };
                         if (this.config.ragAdapter) {
                             executeContext.ragAdapter = this.config.ragAdapter;
                         }
                         const result = await this.toolRegistry.execute(tc.name, args, executeContext);
-                        toolResults.push({ toolCallId: tc.id, content: JSON.stringify(result) });
+
+                        // Handle special return values from STM/Scratchpad tools if they return specific update instructions
+                        // Or just let them update the registry/context directly if they have access.
+                        // Actually, if a tool updates context.scratchpad, we need to capture it.
+                        // Since executeContext is local, tools like write_scratchpad need to return the new state.
+
+                        let finalResult = result;
+                        if (typeof result === 'object' && result !== null) {
+                            const resObj = result as any;
+                            if (resObj.status === 'success' && resObj.newScratchpad !== undefined) {
+                                this.context.scratchpad = resObj.newScratchpad;
+                                finalResult = resObj.note || 'Scratchpad updated';
+                            }
+                        }
+
+                        // Enforce maxTokensPerTool
+                        let content = JSON.stringify(finalResult);
+                        const tokenCount = this.adapter.estimateTokens(content);
+                        if (this.config.maxTokensPerTool && tokenCount > this.config.maxTokensPerTool) {
+                            content = content.slice(0, this.config.maxTokensPerTool * 4) + '... [TRUNCATED DUE TO TOOL TOKEN LIMIT]';
+                        }
+
+                        toolResults.push({ toolCallId: tc.id, content });
                     } catch (e: any) {
                         toolResults.push({ toolCallId: tc.id, content: `Error: ${e.message}` });
                     }

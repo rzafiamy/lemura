@@ -21,9 +21,9 @@ export interface RetryConfig {
 }
 
 export interface OpenAICompatibleAdapterConfig {
-    baseUrl: string;
-    apiKey: string;
-    defaultModel: string;
+    baseUrl?: string;
+    apiKey?: string;
+    defaultModel?: string;
     defaultHeaders?: Record<string, string>;
     timeout?: number;
     retry?: RetryConfig;
@@ -43,10 +43,17 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
     private timeoutMs: number;
     private retryConfig: RetryConfig;
 
-    constructor(config: OpenAICompatibleAdapterConfig) {
-        this.baseUrl = config.baseUrl.replace(/\/$/, '');
-        this.apiKey = config.apiKey;
-        this.defaultModel = config.defaultModel;
+    constructor(config: OpenAICompatibleAdapterConfig = {}) {
+        this.baseUrl = (
+            config.baseUrl ??
+            process.env.LEMURA_BASE_URL ??
+            process.env.OPENAI_BASE_URL ??
+            'https://api.openai.com/v1'
+        ).replace(/\/$/, '');
+
+        this.apiKey = config.apiKey ?? process.env.LEMURA_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
+        this.defaultModel = config.defaultModel ?? process.env.LEMURA_MODEL ?? process.env.OPENAI_MODEL ?? 'gpt-3.5-turbo';
+
         this.defaultHeaders = config.defaultHeaders || {};
         this.timeoutMs = config.timeout || 30000;
         this.retryConfig = config.retry || { maxRetries: 2, baseDelayMs: 1000 };
