@@ -37,6 +37,11 @@
       "types": "./dist/logger/index.d.ts",
       "import": "./dist/logger/index.mjs",
       "require": "./dist/logger/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.mjs",
+      "require": "./dist/types/index.js"
     }
   },
   "main": "./dist/index.js",

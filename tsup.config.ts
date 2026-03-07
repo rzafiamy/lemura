@@ -9,6 +9,7 @@ export default defineConfig({
     'skills/index': 'src/skills/index.ts',
     'rag/index': 'src/rag/index.ts',
     'logger/index': 'src/logger/index.ts',
+    'types/index': 'src/types/index.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

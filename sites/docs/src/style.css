@@ -1,0 +1,334 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary-50: #f0f9ff;
+  --color-primary-100: #e0f2fe;
+  --color-primary-200: #bae6fd;
+  --color-primary-300: #7dd3fc;
+  --color-primary-400: #38bdf8;
+  --color-primary-500: #0ea5e9;
+  --color-primary-600: #0284c7;
+  --color-primary-700: #0369a1;
+  --color-primary-800: #075985;
+  --color-primary-900: #0c4a6e;
+  --color-primary-950: #082f49;
+
+  --color-surface-950: #050505;
+  --color-surface-900: #0a0a0a;
+  --color-surface-800: #121212;
+  --color-surface-700: #1a1a1a;
+  --color-surface-600: #262626;
+
+  --font-sans: "Inter", "system-ui", "sans-serif";
+  --font-display: "Outfit", "Inter", "system-ui", "sans-serif";
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+
+  --shadow-glow: 0 0 20px -5px var(--color-primary-500);
+  --shadow-glow-lg: 0 0 60px -10px var(--color-primary-500);
+
+  --radius-4xl: 2rem;
+  --radius-5xl: 3rem;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    cursor: default;
+  }
+
+  body {
+    @apply bg-surface-950 text-slate-400 font-sans antialiased overflow-x-hidden;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv11";
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(14, 165, 233, 0.3);
+    color: #fff;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-display text-white font-bold tracking-tight;
+  }
+
+  a,
+  button {
+    cursor: pointer;
+  }
+
+  pre {
+    @apply font-mono;
+  }
+}
+
+/* ==================== UTILITIES ==================== */
+
+@utility glass-card {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.82);
+}
+
+@utility glass-border {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@utility text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-br from-white via-white to-white/40;
+}
+
+@utility text-gradient-primary {
+  @apply bg-clip-text text-transparent bg-gradient-to-br from-white via-primary-300 to-primary-600;
+}
+
+@utility callout-base {
+  @apply flex gap-4 p-6 rounded-3xl my-8 text-sm leading-relaxed glass-border;
+}
+
+/* ==================== COMPONENTS ==================== */
+
+@layer components {
+
+  .nav-blur {
+    @apply fixed top-0 left-0 right-0 z-50 bg-surface-950/80 backdrop-blur-3xl border-b border-white/5 transition-all duration-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2.5 px-6 py-2.5 bg-white text-black rounded-full font-semibold text-sm transition-all duration-300;
+  }
+
+  .btn-primary:hover {
+    @apply scale-105;
+    box-shadow: 0 0 30px -5px rgba(255, 255, 255, 0.4);
+  }
+
+  .btn-primary:active {
+    @apply scale-95;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2.5 px-6 py-2.5 bg-white/5 text-white rounded-full font-semibold text-sm transition-all duration-300 border border-white/10 backdrop-blur-md;
+  }
+
+  .btn-secondary:hover {
+    @apply bg-white/10 border-white/20;
+  }
+
+  .btn-secondary:active {
+    @apply scale-95;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 text-slate-400 hover:text-white rounded-lg text-sm font-medium transition-all duration-200 hover:bg-white/5;
+  }
+
+  .feature-card {
+    @apply glass-card p-8 rounded-4xl overflow-hidden relative transition-all duration-500 hover:bg-white/[0.05] hover:border-white/15;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 hover:text-white hover:bg-white/5 transition-all duration-200 text-sm font-medium;
+  }
+
+  .sidebar-link.active {
+    @apply bg-white/10 text-white font-semibold;
+  }
+
+  .sidebar-category {
+    @apply text-[10px] font-black text-slate-700 uppercase tracking-[0.2em] mb-3 px-4;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/60 text-[10px] font-bold tracking-widest uppercase;
+  }
+
+  /* Code blocks */
+  .code-block-wrapper {
+    @apply relative rounded-3xl overflow-hidden my-10 glass-border bg-surface-900 shadow-2xl;
+  }
+
+  .copy-button {
+    @apply flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-white transition-all duration-200 font-bold uppercase tracking-wider bg-white/5 px-2 py-1 rounded-md border border-white/5;
+  }
+
+  .copy-button.copied {
+    @apply text-emerald-400 border-emerald-500/30 bg-emerald-500/10;
+  }
+
+  .callout-info {
+    @apply callout-base bg-primary-500/5 text-primary-200 border-primary-500/20;
+  }
+
+  .callout-warning {
+    @apply callout-base bg-amber-500/5 text-amber-200 border-amber-500/20;
+  }
+
+  .callout-tip {
+    @apply callout-base bg-emerald-500/5 text-emerald-200 border-emerald-500/20;
+  }
+
+  /* Docs Content */
+  .markdown-content {
+    @apply text-slate-400 text-[1.05rem] leading-[1.8];
+  }
+
+  .markdown-content h1 {
+    @apply text-gradient-primary text-5xl lg:text-6xl font-black mb-8 leading-tight tracking-tight;
+  }
+
+  .markdown-content h2 {
+    @apply text-white text-2xl lg:text-3xl font-bold mt-16 mb-6 pb-4 border-b border-white/5;
+  }
+
+  .markdown-content h3 {
+    @apply text-white text-xl font-bold mt-10 mb-4;
+  }
+
+  .markdown-content p {
+    @apply my-6;
+  }
+
+  .markdown-content a {
+    @apply text-white underline decoration-white/30 underline-offset-4 hover:decoration-white transition-all;
+  }
+
+  .markdown-content code:not(pre code) {
+    @apply font-mono text-[0.85em] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-primary-300;
+  }
+
+  .markdown-content ul {
+    @apply my-6 space-y-3;
+  }
+
+  .markdown-content li {
+    @apply relative pl-6;
+  }
+
+  .markdown-content li::before {
+    content: '';
+    @apply absolute left-0 top-[0.6em] w-1.5 h-1.5 rounded-full bg-white/20;
+  }
+}
+
+/* ==================== ANIMATIONS ==================== */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin 10s linear infinite;
+}
+
+/* ==================== SCROLLBAR ==================== */
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
+}
+
+/* ==================== DOCS INTERFACE ==================== */
+
+.sidebar-desktop {
+  @apply border-r border-white/5 bg-surface-950;
+}
+
+.reading-progress {
+  @apply fixed top-0 left-0 h-[3px] bg-white z-[60] transition-all;
+}
+
+.page-nav {
+  @apply grid grid-cols-1 md:grid-cols-2 gap-4 mt-20 pt-10 border-t border-white/5;
+}
+
+.page-nav-card {
+  @apply glass-card p-6 flex flex-col gap-2 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98];
+}
+
+.page-nav-label {
+  @apply text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 hover:text-white/60 transition-colors;
+}
+
+.page-nav-title {
+  @apply text-lg font-bold text-white;
+}
+
+.stat-card {
+  @apply glass-card p-8 flex flex-col items-center text-center transition-all duration-500 hover:bg-white/[0.04];
+}
+
+.stat-value {
+  @apply text-4xl font-black text-white mb-2 font-display;
+}
+
+.stat-label {
+  @apply text-xs font-bold uppercase tracking-widest text-slate-500;
+}
+
+/* ==================== HLJS OVERRIDES ==================== */
+
+pre code.hljs {
+  @apply p-8 bg-transparent text-[0.9em] leading-[1.7] block overflow-x-auto;
+}
+
+.hljs-keyword {
+  color: #f472b6;
+}
+
+.hljs-string {
+  color: #34d399;
+}
+
+.hljs-comment {
+  @apply text-slate-600 italic;
+}
+
+.hljs-attr {
+  color: #60a5fa;
+}
+
+.hljs-title {
+  color: #fbbf24;
+}
+
+.hljs-built_in {
+  color: #818cf8;
+}
+
+.hljs-number {
+  color: #fb923c;
+}

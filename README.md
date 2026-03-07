@@ -23,6 +23,34 @@ pnpm add lemura
 npm install lemura
 ```
 
+## ⚙️ Environment Variables
+
+The built-in `OpenAICompatibleAdapter` can be configured using environment variables. To load them from a `.env` file in Node.js, you'll typically need a library like `dotenv`:
+
+```bash
+npm install dotenv
+```
+
+Then at the very top of your entry point:
+
+```ts
+import 'dotenv/config';
+```
+
+Create a `.env` file in your project root:
+
+```ini
+# Provider Configuration (OpenAI, Groq, Together, Ollama, etc.)
+LEMURA_API_KEY=your_api_key_here
+LEMURA_BASE_URL=https://api.openai.com/v1
+LEMURA_MODEL=gpt-4o-mini
+
+# Fallbacks (Lemura also checks standard OpenAI variables)
+OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
+
 ## ⚡ Quick Start
 
 ```ts
@@ -67,6 +95,35 @@ Explore the architecture and advanced capabilities of `lemura`:
 | `OpenAICompatibleAdapter` | Reference adapter for OpenAI, Groq, Together, etc. |
 | `ToolRegistry` | Registers and executes tools for the agent. |
 | `SkillInjector` | Loads and formats YAML/Markdown skills into system prompts. |
+| `DefaultLogger` | Colorized logger with Problem/Hints metadata support. |
+
+## 🪵 Logging and Tracing
+
+`lemura` features a premium, structured logging system designed for developer experience. It provides colorized output and actionable hints for errors.
+
+```ts
+import { SessionManager, DefaultLogger, LogLevel } from 'lemura';
+
+const logger = new DefaultLogger();
+logger.setLevel(LogLevel.DEBUG); // Set to show trace-level information
+
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o-mini',
+  maxTokens: 100000,
+  logger: logger // Inject the logger
+});
+```
+
+When an error occurs (like an invalid API key), `lemura` provides beautiful, structured feedback:
+
+```text
+2026-03-07T13:05:49.686Z [FATAL] Provider call failed: HTTP 401: Unauthorized
+  PROBLEM: Authentication failed. The API key is invalid or missing.
+  HINTS:
+    - Ensure your API key is correctly configured in the adapter or environment variables.
+    - Check if the API key has expired or been revoked.
+```
 
 ## 🔌 Provider Adapters
 
