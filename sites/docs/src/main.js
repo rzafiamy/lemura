@@ -3,7 +3,7 @@ import { marked } from 'marked'
 import hljs from 'highlight.js'
 
 // ============================================================
-// CONFIGURATION
+// CONFIGURATION — Hierarchical docs structure
 // ============================================================
 
 const docs = [
@@ -15,6 +15,13 @@ const docs = [
     icon: 'zap',
     color: 'primary',
     category: 'Fundamentals',
+    children: [
+      { id: 'getting-started/installation', title: 'Installation', file: 'getting-started/installation.md', icon: 'package' },
+      { id: 'getting-started/quick-start', title: 'Quick Start', file: 'getting-started/quick-start.md', icon: 'play' },
+      { id: 'getting-started/core-concepts', title: 'Core Concepts', file: 'getting-started/core-concepts.md', icon: 'book-open' },
+      { id: 'getting-started/session-config', title: 'SessionConfig Reference', file: 'getting-started/session-config.md', icon: 'settings' },
+      { id: 'getting-started/error-handling', title: 'Error Handling', file: 'getting-started/error-handling.md', icon: 'alert-triangle' },
+    ],
   },
   {
     id: 'adapters',
@@ -24,6 +31,13 @@ const docs = [
     icon: 'cpu',
     color: 'purple',
     category: 'Fundamentals',
+    children: [
+      { id: 'adapters/openai-compatible', title: 'OpenAI & Compatible', file: 'adapters/openai-compatible.md', icon: 'link' },
+      { id: 'adapters/custom-adapter', title: 'Writing a Custom Adapter', file: 'adapters/custom-adapter.md', icon: 'code' },
+      { id: 'adapters/streaming-multimodal', title: 'Streaming & Multimodal', file: 'adapters/streaming-multimodal.md', icon: 'radio' },
+      { id: 'adapters/retry-rate-limits', title: 'Retry & Rate Limits', file: 'adapters/retry-rate-limits.md', icon: 'refresh-cw' },
+      { id: 'adapters/finish-reason', title: 'Finish Reason Normalization', file: 'adapters/finish-reason.md', icon: 'check-circle' },
+    ],
   },
   {
     id: 'context-management',
@@ -33,6 +47,13 @@ const docs = [
     icon: 'layers',
     color: 'cyan',
     category: 'Fundamentals',
+    children: [
+      { id: 'context-management/sandwich-compression', title: 'Sandwich Compression', file: 'context-management/sandwich-compression.md', icon: 'align-justify' },
+      { id: 'context-management/token-counting', title: 'Token Counting & Budgets', file: 'context-management/token-counting.md', icon: 'hash' },
+      { id: 'context-management/custom-strategies', title: 'Custom Strategies', file: 'context-management/custom-strategies.md', icon: 'sliders' },
+      { id: 'context-management/observability', title: 'Observability & Events', file: 'context-management/observability.md', icon: 'bar-chart-2' },
+      { id: 'context-management/scratchpad', title: 'Scratchpad & Working Memory', file: 'context-management/scratchpad.md', icon: 'edit-3' },
+    ],
   },
   {
     id: 'tools-and-skills',
@@ -42,6 +63,13 @@ const docs = [
     icon: 'tool',
     color: 'amber',
     category: 'Fundamentals',
+    children: [
+      { id: 'tools-and-skills/defining-tools', title: 'Defining Tools', file: 'tools-and-skills/defining-tools.md', icon: 'terminal' },
+      { id: 'tools-and-skills/skills-system', title: 'The Skills System', file: 'tools-and-skills/skills-system.md', icon: 'star' },
+      { id: 'tools-and-skills/tool-discovery', title: 'Tool Auto-Discovery', file: 'tools-and-skills/tool-discovery.md', icon: 'search' },
+      { id: 'tools-and-skills/tool-validation', title: 'Validation & Timeouts', file: 'tools-and-skills/tool-validation.md', icon: 'shield' },
+      { id: 'tools-and-skills/tool-examples', title: 'Real-World Examples', file: 'tools-and-skills/tool-examples.md', icon: 'box' },
+    ],
   },
   {
     id: 'rag-integration',
@@ -51,6 +79,11 @@ const docs = [
     icon: 'database',
     color: 'emerald',
     category: 'Fundamentals',
+    children: [
+      { id: 'rag-integration/vector-stores', title: 'Vector Store Adapters', file: 'rag-integration/vector-stores.md', icon: 'server' },
+      { id: 'rag-integration/document-ingestion', title: 'Document Ingestion', file: 'rag-integration/document-ingestion.md', icon: 'upload' },
+      { id: 'rag-integration/query-optimization', title: 'Query Optimization', file: 'rag-integration/query-optimization.md', icon: 'target' },
+    ],
   },
   {
     id: 'advanced-execution',
@@ -60,8 +93,21 @@ const docs = [
     icon: 'activity',
     color: 'rose',
     category: 'Advanced',
+    children: [
+      { id: 'advanced-execution/goal-planning', title: 'Goal Planning & Injection', file: 'advanced-execution/goal-planning.md', icon: 'target' },
+      { id: 'advanced-execution/continuation-planning', title: 'Continuation Planning', file: 'advanced-execution/continuation-planning.md', icon: 'git-branch' },
+      { id: 'advanced-execution/max-steps', title: 'maxSteps & Loop Control', file: 'advanced-execution/max-steps.md', icon: 'repeat' },
+      { id: 'advanced-execution/tool-response-compression', title: 'Tool Response Compression', file: 'advanced-execution/tool-response-compression.md', icon: 'minimize-2' },
+    ],
   },
 ]
+
+// Flat lookup of all pages (parent + children)
+const allPages = []
+for (const doc of docs) {
+  allPages.push(doc)
+  if (doc.children) allPages.push(...doc.children)
+}
 
 const categories = [...new Set(docs.map(d => d.category))]
 
@@ -97,14 +143,12 @@ renderer.table = function (token) {
   let header = ''
   let body = ''
 
-  // Build header
   header += '<thead><tr>'
   token.header.forEach(cell => {
     header += `<th>${this.parser.parseInline(cell.tokens)}</th>`
   })
   header += '</tr></thead>'
 
-  // Build body
   body += '<tbody>'
   token.rows.forEach(row => {
     body += '<tr>'
@@ -147,10 +191,38 @@ const icons = {
   database: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5M3 12A9 3 0 0 0 21 12"/></svg>`,
   activity: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`,
   chevronRight: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`,
+  chevronDown: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`,
   arrowLeft: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`,
   github: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>`,
   check: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
   externalLink: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>`,
+  // Child page icons
+  package: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" x2="12" y1="22" y2="12"/></svg>`,
+  play: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+  'book-open': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+  settings: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  'alert-triangle': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+  link: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+  code: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  radio: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>`,
+  'refresh-cw': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>`,
+  'check-circle': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>`,
+  'align-justify': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="21" y1="12" y2="12"/><line x1="3" x2="21" y1="18" y2="18"/></svg>`,
+  hash: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>`,
+  sliders: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="6" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="4" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="8" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="12" y2="12"/><line x1="17" x2="23" y1="16" y2="16"/></svg>`,
+  'bar-chart-2': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>`,
+  'edit-3': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
+  terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`,
+  star: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  search: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
+  shield: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  box: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>`,
+  server: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>`,
+  upload: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>`,
+  target: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
+  'git-branch': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`,
+  repeat: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+  'minimize-2': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" x2="3" y1="14" y2="21"/><line x1="21" x2="14" y1="3" y2="10"/></svg>`,
 }
 
 const colorMap = {
@@ -160,6 +232,15 @@ const colorMap = {
   amber: 'text-amber-600 bg-amber-500/10 border-amber-500/20',
   emerald: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20',
   rose: 'text-rose-600 bg-rose-500/10 border-rose-500/20',
+}
+
+// State: which sidebar sections are expanded
+const expandedSections = new Set()
+
+function getIconHtml(name, size = 18) {
+  const svg = icons[name]
+  if (!svg) return ''
+  return svg.replace(/width="\d+"/, `width="${size}"`).replace(/height="\d+"/, `height="${size}"`)
 }
 
 // ============================================================
@@ -284,14 +365,77 @@ function renderHome() {
 }
 
 // ============================================================
+// SIDEBAR BUILDER
+// ============================================================
+
+function buildSidebar(activeDocId) {
+  // Determine which parent section to auto-expand
+  const activePage = allPages.find(p => p.id === activeDocId)
+  const activeParentId = activePage?.id?.split('/')[0] ?? activeDocId
+
+  // Auto-expand the section containing the active page
+  if (activeParentId) expandedSections.add(activeParentId)
+
+  return categories.map(cat => `
+    <div>
+      <div class="sidebar-category">${cat}</div>
+      <div class="space-y-0.5">
+        ${docs.filter(d => d.category === cat).map(d => {
+    const isExpanded = expandedSections.has(d.id)
+    const hasChildren = d.children && d.children.length > 0
+    const isParentActive = activeDocId === d.id
+    const isChildActive = d.children?.some(c => c.id === activeDocId)
+
+    return `
+            <div class="sidebar-section">
+              <!-- Parent row -->
+              <div class="sidebar-parent-row ${isParentActive ? 'active' : ''} ${isChildActive ? 'child-active' : ''}">
+                <a href="#/docs/${d.id}" class="sidebar-parent-link">
+                  <span class="w-4 h-4 flex items-center justify-center opacity-60">${icons[d.icon]}</span>
+                  <span>${d.title}</span>
+                </a>
+                ${hasChildren ? `
+                  <button class="sidebar-expand-btn" data-section="${d.id}" aria-label="Toggle ${d.title}">
+                    <span class="expand-icon ${isExpanded ? 'expanded' : ''}">${icons.chevronDown}</span>
+                  </button>
+                ` : ''}
+              </div>
+
+              ${hasChildren ? `
+                <div class="sidebar-children ${isExpanded ? 'expanded' : ''}" id="children-${d.id}">
+                  ${d.children.map(child => `
+                    <a href="#/docs/${child.id}" class="sidebar-child-link ${child.id === activeDocId ? 'active' : ''}">
+                      <span class="sidebar-child-icon">${getIconHtml(child.icon, 13)}</span>
+                      <span>${child.title}</span>
+                    </a>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `
+  }).join('')}
+      </div>
+    </div>
+  `).join('')
+}
+
+// ============================================================
 // DOCS PAGE
 // ============================================================
 
 async function renderDocs(docId) {
-  const doc = docs.find(d => d.id === docId) || docs[0]
-  const docIndex = docs.indexOf(doc)
-  const prevDoc = docIndex > 0 ? docs[docIndex - 1] : null
-  const nextDoc = docIndex < docs.length - 1 ? docs[docIndex + 1] : null
+  const doc = allPages.find(d => d.id === docId) || docs[0]
+  const parentDoc = docs.find(d => d.id === docId || d.children?.some(c => c.id === docId))
+
+  // For navigation: use flat allPages list
+  const currentIndex = allPages.indexOf(doc)
+  const prevDoc = currentIndex > 0 ? allPages[currentIndex - 1] : null
+  const nextDoc = currentIndex < allPages.length - 1 ? allPages[currentIndex + 1] : null
+
+  // For color/icon: use parent doc's color scheme
+  const colorDoc = parentDoc || doc
+  const docColor = colorDoc.color || 'primary'
+  const docIcon = colorDoc.icon || 'zap'
 
   document.title = `${doc.title} — lemura`
 
@@ -311,25 +455,13 @@ async function renderDocs(docId) {
           </a>
         </div>
 
-        <nav class="flex-1 overflow-y-auto p-6 space-y-8">
-          ${categories.map(cat => `
-            <div>
-              <div class="sidebar-category">${cat}</div>
-              <div class="space-y-1">
-                ${docs.filter(d => d.category === cat).map(d => `
-                  <a href="#/docs/${d.id}" class="sidebar-link ${d.id === docId ? 'active' : ''}">
-                    <span class="w-4 h-4 flex items-center justify-center opacity-50">${icons[d.icon]}</span>
-                    ${d.title}
-                  </a>
-                `).join('')}
-              </div>
-            </div>
-          `).join('')}
+        <nav class="flex-1 overflow-y-auto p-5 space-y-6">
+          ${buildSidebar(docId)}
           
-          <div class="pt-8 border-t border-black/5">
+          <div class="pt-6 border-t border-black/5">
             <div class="sidebar-category">Resources</div>
-            <a href="https://github.com/lemura-ai/lemura" target="_blank" class="sidebar-link">
-              ${icons.github} GitHub ${icons.externalLink}
+            <a href="https://github.com/lemura-ai/lemura" target="_blank" class="sidebar-child-link gap-2">
+              ${getIconHtml('github', 14)} GitHub ${icons.externalLink}
             </a>
           </div>
         </nav>
@@ -350,6 +482,10 @@ async function renderDocs(docId) {
            <div class="flex items-center gap-3 text-[11px] font-black uppercase tracking-widest text-slate-400">
              <a href="#/" class="hover:text-slate-900 transition-colors">Lemura</a>
              <span class="opacity-20">/</span>
+             ${parentDoc && parentDoc.id !== doc.id ? `
+               <a href="#/docs/${parentDoc.id}" class="hover:text-slate-900 transition-colors">${parentDoc.title}</a>
+               <span class="opacity-20">/</span>
+             ` : ''}
              <span class="text-slate-900/40">${doc.title}</span>
            </div>
            
@@ -361,8 +497,8 @@ async function renderDocs(docId) {
         <div class="max-w-4xl mx-auto px-12 py-20">
           
           <!-- BREADCRUMB ICON -->
-          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-8 border ${colorMap[doc.color]} animate-fade-up">
-            ${icons[doc.icon]}
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-8 border ${colorMap[docColor]} animate-fade-up">
+            ${icons[docIcon]}
           </div>
 
           <article id="doc-content" class="markdown-content animate-fade-up" style="animation-delay: 100ms">
@@ -377,13 +513,13 @@ async function renderDocs(docId) {
             <nav class="page-nav animate-fade-up" style="animation-delay: 200ms">
                ${prevDoc ? `
                 <a href="#/docs/${prevDoc.id}" class="page-nav-card p-8">
-                  <span class="page-nav-label">Previous Step</span>
+                  <span class="page-nav-label">Previous</span>
                   <span class="page-nav-title">${prevDoc.title}</span>
                 </a>
                ` : '<div />'}
                ${nextDoc ? `
                 <a href="#/docs/${nextDoc.id}" class="page-nav-card p-8 items-end text-right">
-                  <span class="page-nav-label">Continue To</span>
+                  <span class="page-nav-label">Next</span>
                   <span class="page-nav-title">${nextDoc.title}</span>
                 </a>
                ` : ''}
@@ -396,6 +532,27 @@ async function renderDocs(docId) {
 
     </div>
   `
+
+  // Wire sidebar expand/collapse toggles
+  document.querySelectorAll('.sidebar-expand-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const sectionId = btn.dataset.section
+      const childrenEl = document.getElementById(`children-${sectionId}`)
+      const iconEl = btn.querySelector('.expand-icon')
+
+      if (expandedSections.has(sectionId)) {
+        expandedSections.delete(sectionId)
+        childrenEl?.classList.remove('expanded')
+        iconEl?.classList.remove('expanded')
+      } else {
+        expandedSections.add(sectionId)
+        childrenEl?.classList.add('expanded')
+        iconEl?.classList.add('expanded')
+      }
+    })
+  })
 
   // Fetch and Parse Markdown
   try {

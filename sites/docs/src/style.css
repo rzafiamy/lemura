@@ -136,16 +136,104 @@
     @apply glass-card p-8 rounded-4xl overflow-hidden relative transition-all duration-500 hover:bg-white hover:shadow-xl hover:shadow-black/5;
   }
 
+  /* ─── Hierarchical Sidebar ─────────────────────────────── */
+
+  .sidebar-category {
+    @apply text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 px-4;
+  }
+
+  .sidebar-section {
+    @apply mb-0.5;
+  }
+
+  /* Parent row — contains the link and the expand toggle */
+  .sidebar-parent-row {
+    @apply flex items-center rounded-xl overflow-hidden;
+    transition: background 0.15s;
+  }
+
+  .sidebar-parent-row:hover {
+    @apply bg-black/[0.04];
+  }
+
+  .sidebar-parent-row.active {
+    @apply bg-primary-50 border border-primary-100;
+  }
+
+  .sidebar-parent-row.active .sidebar-parent-link {
+    @apply text-primary-700 font-semibold;
+  }
+
+  /* Subtle highlight when a child is active */
+  .sidebar-parent-row.child-active .sidebar-parent-link {
+    @apply text-slate-900;
+  }
+
+  .sidebar-parent-link {
+    @apply flex items-center gap-3 flex-1 px-4 py-2.5 text-slate-500 hover:text-slate-900 text-sm font-medium transition-colors;
+    min-width: 0;
+  }
+
+  .sidebar-expand-btn {
+    @apply flex items-center justify-center w-8 h-8 mr-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-black/5 flex-shrink-0 transition-all duration-200;
+  }
+
+  .expand-icon {
+    @apply transition-transform duration-200;
+    display: flex;
+    align-items: center;
+  }
+
+  .expand-icon.expanded {
+    transform: rotate(0deg);
+  }
+
+  .expand-icon:not(.expanded) {
+    transform: rotate(-90deg);
+  }
+
+  /* Children panel — slides open/closed */
+  .sidebar-children {
+    @apply overflow-hidden;
+    max-height: 0;
+    transition: max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.2s ease;
+    opacity: 0;
+  }
+
+  .sidebar-children.expanded {
+    max-height: 800px;
+    opacity: 1;
+  }
+
+  .sidebar-child-link {
+    @apply flex items-center gap-2.5 pl-10 pr-4 py-2 mx-1 my-0.5 rounded-lg text-[13px] text-slate-400 font-medium transition-all duration-150;
+    cursor: pointer;
+  }
+
+  .sidebar-child-link:hover {
+    @apply text-slate-700 bg-black/[0.04];
+  }
+
+  .sidebar-child-link.active {
+    @apply text-primary-700 bg-primary-50 font-semibold border border-primary-100;
+  }
+
+  .sidebar-child-icon {
+    @apply opacity-50 flex-shrink-0;
+  }
+
+  .sidebar-child-link.active .sidebar-child-icon {
+    @apply opacity-100;
+  }
+
+  /* Legacy (kept for compatibility) */
   .sidebar-link {
     @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-black/5 transition-all duration-200 text-sm font-medium;
   }
 
   .sidebar-link.active {
     @apply bg-primary-50 text-primary-700 font-semibold border border-primary-100;
-  }
-
-  .sidebar-category {
-    @apply text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 px-4;
   }
 
   .badge {
