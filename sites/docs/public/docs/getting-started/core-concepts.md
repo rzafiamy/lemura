@@ -6,31 +6,10 @@ Understanding these five concepts gives you a complete mental model of lemura be
 
 ## 1. The ReAct Loop — The Engine
 
+![ReAct Loop Diagram](/images/react-loop.png)
+
 lemura's execution engine is the **ReAct (Reason + Act)** loop. Every `session.run()` call goes through this cycle until the agent produces a final answer:
 
-```
-User Message
-     │
-     ▼
-┌────────────────────────────────────────┐
-│         SessionManager.run()           │
-│                                        │
-│  ┌────────────────────────────────┐   │
-│  │  Inject skills into prompt      │   │
-│  │  Compress context if needed     │   │
-│  │  Call provider → get response   │   │
-│  └────────────┬───────────────────┘   │
-│               │                        │
-│        ┌──────┴──────┐                 │
-│        │             │                 │
-│   tool_call?     stop/final?           │
-│        │             │                 │
-│   Execute tool   Return answer         │
-│   Inject result                        │
-│        │                               │
-│        └──── repeat cycle ────────────┘
-└────────────────────────────────────────┘
-```
 
 **Key insight:** The model never calls tools directly. It *requests* a tool call. lemura intercepts that request, validates the arguments, executes the function, and feeds the result back as an observation. The model then decides what to do next.
 
@@ -115,26 +94,8 @@ Tools extend *what* the agent can do. Skills shape *how* it thinks and behaves.
 
 ## How They All Fit Together
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     SessionManager                       │
-│                                                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ ReActAgent  │  │ContextManager│  │  ToolRegistry  │  │
-│  │  (loop)     │  │ (memory)     │  │  (actions)    │  │
-│  └──────┬──────┘  └──────┬───────┘  └───────┬───────┘  │
-│         │                │                   │           │
-│  ┌──────▼─────────────────────────────────────────┐    │
-│  │              IProviderAdapter                   │    │
-│  │   (normalize any LLM into one interface)        │    │
-│  └─────────────────────────────────────────────────┘    │
-│                                                          │
-│  ┌───────────────┐  ┌─────────────────────────────┐     │
-│  │ SkillInjector │  │       IRAGAdapter            │     │
-│  │  (behavior)   │  │  (knowledge retrieval)      │     │
-│  └───────────────┘  └─────────────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
-```
+![lemura Architecture Overview](/images/architecture-overview.png)
+
 
 **Data flow for a single turn:**
 1. `SessionManager.run(message)` starts
