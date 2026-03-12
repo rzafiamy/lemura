@@ -141,4 +141,20 @@ export interface SessionConfig {
      * Passed to `ToolRegistry`. Defaults to 30 000.
      */
     toolRegistryTimeoutMs?: number;
+
+    /** Callback for granular trace events (planning, budgets, tools, etc.) */
+    onTrace?: (event: TraceEvent) => void;
+}
+
+/** Rich trace event for observability */
+export interface TraceEvent {
+    sessionId?: string;
+    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error';
+    name: string;
+    input?: any;
+    output?: any;
+    durationMs?: number;
+    startedAt?: number;
+    status?: 'running' | 'done' | 'error';
+    metadata?: Record<string, any>;
 }

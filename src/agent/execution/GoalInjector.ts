@@ -20,4 +20,8 @@ export class GoalInjector {
 
         return prompt;
     }
+
+    getGoal(): Goal {
+        return { ...this.goal };
+    }
 }

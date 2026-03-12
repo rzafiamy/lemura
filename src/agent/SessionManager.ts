@@ -123,6 +123,39 @@ export class SessionManager {
         // Goal injector (wired when enableGoalPlanning is true)
         // The goal is initialised on the first run() call once we know the user message.
         this.goalInjector = null;
+
+        // Emit initial system trace
+        this.emitTrace('system', 'session_init', {
+            config: {
+                model: this.config.model,
+                maxIterations: this.config.maxIterations,
+                maxSteps: this.config.maxSteps,
+                parallelToolCalls: this.config.parallelToolCalls,
+                enableGoalPlanning: this.config.enableGoalPlanning,
+                enableContinuationPlanning: this.config.enableContinuationPlanning
+            }
+        });
+    }
+
+    private emitTrace(
+        type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error',
+        name: string,
+        metadata?: Record<string, any>,
+        input?: any,
+        output?: any,
+        status: 'running' | 'done' | 'error' = 'done'
+    ) {
+        if (this.config.onTrace) {
+            this.config.onTrace({
+                type,
+                name,
+                metadata: metadata || {},
+                input,
+                output,
+                status,
+                startedAt: Date.now()
+            });
+        }
     }
 
     /**
@@ -166,6 +199,11 @@ export class SessionManager {
                     injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt'
                 });
                 this.logger.debug('Goal injector initialised');
+                const goal = this.goalInjector.getGoal();
+                this.emitTrace('planning', 'goal_init', {
+                    statement: goal.statement,
+                    criteria: goal.successCriteria
+                });
             }
             if (this.config.goalInjectionPosition !== 'pre_turn') {
                 prompt = this.goalInjector.injectInto(prompt);
@@ -222,9 +260,11 @@ export class SessionManager {
                     `Tool execution budget exceeded: '${toolName}' has reached its per-tool limit of ${budget.maxCallsPerTool[toolName]}`
                 );
                 this.logger.warn(err.message);
+                this.emitTrace('budget', 'tool_limit_exceeded', { toolName, limit: budget.maxCallsPerTool[toolName] });
                 throw err;
             }
         }
+        this.emitTrace('budget', 'check_passed', { toolName, totalCalls: this.totalToolCallCount });
     }
 
     /** Records a tool call in budget counters */
@@ -309,6 +349,7 @@ export class SessionManager {
             if (resObj['status'] === 'success' && resObj['newScratchpad'] !== undefined) {
                 this.context.scratchpad = resObj['newScratchpad'] as string;
                 finalResult = resObj['note'] || 'Scratchpad updated';
+                this.emitTrace('planning', 'scratchpad_update', { note: resObj['note'] });
             }
         }
 
@@ -388,6 +429,7 @@ export class SessionManager {
                     role: 'system',
                     content: this.stepCounter.getForcedConclusionPrompt() + '\n\n' + FinalResponseFormatter.getRequiredStructure()
                 });
+                this.emitTrace('planning', 'max_steps_reached', { maxSteps: this.config.maxSteps });
             }
 
             // 3. Call provider
@@ -432,7 +474,10 @@ export class SessionManager {
                         for (const tc of batch) {
                             const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
                             if (ok) allowed.push(tc);
+                            else this.emitTrace('budget', 'firewall_blocked', { toolName: tc.name });
                         }
+
+                        this.emitTrace('planning', 'parallel_execution', { batchSize: allowed.length });
 
                         // Execute allowed calls in parallel
                         const batchResults = await Promise.all(
