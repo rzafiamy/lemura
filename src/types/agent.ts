@@ -30,16 +30,45 @@ export interface MediaConfig {
 export type ToolDecision = 'accept' | 'deny' | 'ask';
 
 export interface ToolFirewallRule {
+    /** Regex pattern matched against the tool name */
     name?: string;
+    /** Regex pattern matched against the serialised arguments JSON */
     arguments?: string;
+    /** Decision to apply when this rule matches */
     decision: ToolDecision;
+    /** Human-readable reason surfaced to the agent when blocked */
     reason?: string;
 }
 
 export interface ToolFirewallConfig {
+    /** Decision applied when no rule matches. Defaults to 'ask'. */
     defaultDecision?: ToolDecision;
+    /** Ordered list of firewall rules — first match wins */
     rules?: ToolFirewallRule[];
+    /**
+     * Called when a tool hits the 'ask' decision.
+     * Return 'accept' or 'deny'. If omitted, 'ask' behaves like 'deny'.
+     */
     onAsk?: (toolName: string, argsJson: string) => Promise<'accept' | 'deny'> | 'accept' | 'deny';
+}
+
+/**
+ * Execution budget constraints for tool calls within a session.
+ *
+ * @example
+ * toolExecutionBudget: {
+ *   maxCallsPerSession: 50,
+ *   maxCallsPerTool: { search_web: 10 },
+ *   maxConcurrentCalls: 4,
+ * }
+ */
+export interface ToolExecutionBudget {
+    /** Maximum total tool calls allowed for the entire session */
+    maxCallsPerSession?: number;
+    /** Maximum calls per named tool within the session */
+    maxCallsPerTool?: Record<string, number>;
+    /** Maximum simultaneous parallel tool executions (default: unlimited) */
+    maxConcurrentCalls?: number;
 }
 
 /** Configuration for a lemura Session */
@@ -95,4 +124,21 @@ export interface SessionConfig {
     stmRegistry?: ShortTermMemoryRegistry;
     /** Max tokens allowed for a single tool response */
     maxTokensPerTool?: number;
+
+    // Tool execution controls
+    /**
+     * Execution budget constraints: call quotas and concurrency cap.
+     * Enforced in the ReAct loop before each tool call.
+     */
+    toolExecutionBudget?: ToolExecutionBudget;
+    /**
+     * When true, independent tool calls within a single assistant response are
+     * executed in parallel using `Promise.all`. Defaults to false (sequential).
+     */
+    parallelToolCalls?: boolean;
+    /**
+     * Default timeout in ms for each tool execution.
+     * Passed to `ToolRegistry`. Defaults to 30 000.
+     */
+    toolRegistryTimeoutMs?: number;
 }

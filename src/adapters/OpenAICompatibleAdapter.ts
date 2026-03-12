@@ -34,7 +34,7 @@ export interface OpenAICompatibleAdapterConfig {
  */
 export class OpenAICompatibleAdapter implements IProviderAdapter {
     readonly name = 'openai_compatible';
-    readonly version = '1.0.0';
+    readonly version = '1.2.0';
 
     private baseUrl: string;
     private apiKey: string;
