@@ -76,6 +76,8 @@ export interface CompletionChunk {
     finished: boolean;
     /** The reason generation stopped, typically present only on the final chunk */
     finishReason?: CompletionResponse['finishReason'];
+    /** Optional token usage stats, typically only present on the final chunk */
+    usage?: TokenUsage;
 }
 
 /* Multimodal Interfaces - Partial specs matching the rules */

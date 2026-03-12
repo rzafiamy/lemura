@@ -32,6 +32,7 @@ import { StepCounter } from './execution/StepCounter.js';
 import { FinalResponseFormatter } from './execution/FinalResponseFormatter.js';
 import { ToolResponseProcessor } from './execution/ToolResponseProcessor.js';
 import { GoalInjector } from './execution/GoalInjector.js';
+import { ContinuationPlanner, ContinuationPlan } from './execution/ContinuationPlanner.js';
 
 /**
  * Core entry point for lemura agent sessions.
@@ -65,10 +66,12 @@ export class SessionManager {
     private stepCounter: StepCounter;
     private toolResponseProcessor: ToolResponseProcessor;
     private goalInjector: GoalInjector | null = null;
+    private continuationPlanner: ContinuationPlanner | null = null;
 
     // Tool execution budget tracking
     private totalToolCallCount: number = 0;
     private perToolCallCount: Map<string, number> = new Map();
+    private totalTokens: number = 0;
 
     constructor(config: SessionConfig) {
         this.config = config;
@@ -207,6 +210,7 @@ export class SessionManager {
             }
             if (this.config.goalInjectionPosition !== 'pre_turn') {
                 prompt = this.goalInjector.injectInto(prompt);
+                this.emitTrace('planning', 'goal_injected', { position: this.config.goalInjectionPosition || 'system_prompt' });
             }
         }
 
@@ -235,6 +239,7 @@ export class SessionManager {
         if (this.goalInjector && this.config.goalInjectionPosition === 'pre_turn') {
             const goalBlock = this.goalInjector.injectInto('');
             messages.push({ role: 'system', content: goalBlock });
+            this.emitTrace('planning', 'goal_injected', { position: 'pre_turn' });
         }
 
         return messages;
@@ -260,11 +265,16 @@ export class SessionManager {
                     `Tool execution budget exceeded: '${toolName}' has reached its per-tool limit of ${budget.maxCallsPerTool[toolName]}`
                 );
                 this.logger.warn(err.message);
-                this.emitTrace('budget', 'tool_limit_exceeded', { toolName, limit: budget.maxCallsPerTool[toolName] });
+                this.emitTrace('budget', 'tool_limit_exceeded', { toolName, limit: budget.maxCallsPerTool[toolName], totalTokens: this.totalTokens });
                 throw err;
             }
         }
-        this.emitTrace('budget', 'check_passed', { toolName, totalCalls: this.totalToolCallCount });
+        this.emitTrace('budget', 'check_passed', {
+            toolName,
+            totalCalls: this.totalToolCallCount,
+            totalTokens: this.totalTokens,
+            tokenBudgetRemaining: this.config.maxTokens - this.totalTokens
+        });
     }
 
     /** Records a tool call in budget counters */
@@ -338,6 +348,8 @@ export class SessionManager {
         }
 
         this.logger.debug(`Executing tool: ${tc.name}`, { args: tc.arguments });
+        this.emitTrace('tool_call', tc.name, { id: tc.id }, tc.arguments, null, 'running');
+
         const result = await this.toolRegistry.execute(tc.name, args, executeContext as never);
         this.recordToolCall(tc.name);
         this.logger.debug(`Tool ${tc.name} returned successfully`);
@@ -370,8 +382,14 @@ export class SessionManager {
         const evaluation = this.toolResponseProcessor.evaluate(content, toolDef, this.context);
         if (evaluation.shouldCompress && !evaluation.errorDetected) {
             content = this.toolResponseProcessor.compress(content, evaluation);
+            this.emitTrace('compression', tc.name, { originalSize: evaluation.sizeClass }, null, content);
         }
 
+        if (this.config.enableContinuationPlanning && evaluation.suggestedAction === 'continue') {
+            this.emitTrace('planning', 'continuation_detected', { toolName: tc.name, action: evaluation.suggestedAction });
+        }
+
+        this.emitTrace('tool_result', tc.name, { id: tc.id }, tc.arguments, content, 'done');
         return content;
     }
 
@@ -429,11 +447,17 @@ export class SessionManager {
                     role: 'system',
                     content: this.stepCounter.getForcedConclusionPrompt() + '\n\n' + FinalResponseFormatter.getRequiredStructure()
                 });
-                this.emitTrace('planning', 'max_steps_reached', { maxSteps: this.config.maxSteps });
+                this.emitTrace('planning', 'max_steps_reached', { maxSteps: this.config.maxSteps, currentSteps: this.stepCounter.count });
             }
 
             // 3. Call provider
             this.logger.debug(`Calling provider adapter (${this.adapter.name})...`);
+            this.emitTrace('thinking', 'llm_call', {
+                model: this.config.model,
+                iteration: this.iterations,
+                totalTokens: this.totalTokens
+            }, null, null, 'running');
+
             let response;
             try {
                 response = await this.adapter.complete({
@@ -446,8 +470,19 @@ export class SessionManager {
                 const e = err as { problem?: string; hints?: string[]; message?: string };
                 const metadata = e.problem ? { problem: e.problem, hints: e.hints ?? [] } : {};
                 this.logger.fatal(`Provider call failed: ${e.message ?? String(err)}`, metadata);
+                this.emitTrace('error', 'llm_call_failed', { error: e.message ?? String(err) });
                 throw err;
             }
+
+            // Update token count
+            if (response.usage) {
+                this.totalTokens += response.usage.totalTokens;
+            }
+            this.emitTrace('thinking', 'llm_call', {
+                model: this.config.model,
+                usage: response.usage,
+                totalTokens: this.totalTokens
+            }, null, response.content, 'done');
 
             // 4a. Tool calls
             if (response.finishReason === 'tool_call' && response.toolCalls) {
@@ -477,7 +512,10 @@ export class SessionManager {
                             else this.emitTrace('budget', 'firewall_blocked', { toolName: tc.name });
                         }
 
-                        this.emitTrace('planning', 'parallel_execution', { batchSize: allowed.length });
+                        this.emitTrace('planning', 'parallel_execution', {
+                            batchSize: allowed.length,
+                            totalInResponse: response.toolCalls.length
+                        });
 
                         // Execute allowed calls in parallel
                         const batchResults = await Promise.all(
@@ -710,6 +748,14 @@ export class SessionManager {
                 }
                 if (chunk.finished) {
                     finalFinishReason = chunk.finishReason;
+                    if (chunk.usage) {
+                        this.totalTokens += chunk.usage.totalTokens;
+                    }
+                    this.emitTrace('thinking', 'llm_stream_finished', {
+                        usage: chunk.usage,
+                        totalTokens: this.totalTokens,
+                        finishReason: chunk.finishReason
+                    });
                 }
             }
 
