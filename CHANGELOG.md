@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-03-12
 
 ### Added
+- **MCP Support** (`MCPClient.ts`, `MCPRegistry.ts`): Model Context Protocol support integrated. You can now register tools from remote MCP servers.
+- **Improved Traces & Observability**: Session traces now include detailed metadata for token usage, execution budget consumption, and planning states for every turn.
 - **Tool Firewall — fully wired** (`ToolFirewall.ts`): The ask/accept/deny policy layer is now fully integrated into the `SessionManager` ReAct loop. Parallel batches respect firewall decisions per-call. No external dependencies.
 - **Standalone JSON Schema Validator** (`SchemaValidator.ts`): Tool parameter validation now enforces the tool's JSON Schema at runtime before execution. Supports `type`, `required`, `properties`, `additionalProperties`, `enum`, `const`, `minLength`/`maxLength`/`pattern` (string), `minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum` (number), `minItems`/`maxItems`/`items` (array), `minProperties`/`maxProperties` (object), and `allOf`/`anyOf`/`oneOf`/`not` composition — zero external dependencies.
 - **Tool execution timeout enforcement**: Every `ToolRegistry.execute()` call now races against a configurable timeout (`toolRegistryTimeoutMs`, default 30 s) via `Promise.race`. Throws `LemuraToolTimeoutError` on expiry.

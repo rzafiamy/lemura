@@ -14,6 +14,16 @@ e[![license](https://img.shields.io/npm/l/lemura.svg?style=flat-square)](./LICEN
 
 `lemura` is a robust, provider-agnostic npm package designed to encapsulate a full agentic AI runtime. It simplifies the complex orchestration of LLMs, tools, and context management into a single, cohesive interface.
 
+### ✨ Key Features in v1.2.0
+- **🔌 MCP Support**: Native Model Context Protocol integration for connecting to external tool servers.
+- **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer.
+- **✅ JSON Schema Validation**: Zero-dependency runtime parameter validation.
+- **⚡ Parallel Tool Calls**: Execute independent tools concurrently for speed.
+- **📊 Enhanced Traces**: Improved observability with detailed token and budget tracking.
+- **⏱️ Execution Timeouts**: Per-tool execution limits for reliability.
+- **🎯 Goal Injection**: Persistent goal awareness across the agent loop.
+- **🌊 Streaming**: Native support for token-by-token completion streaming.
+
 ## 🚀 Install
 
 ```bash
