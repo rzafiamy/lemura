@@ -132,6 +132,22 @@ const docs = [
       { id: 'advanced-execution/tool-response-compression', title: 'Tool Response Compression', file: 'advanced-execution/tool-response-compression.md', icon: 'minimize-2' },
     ],
   },
+  {
+    id: 'mcp',
+    title: 'MCP Integration',
+    subtitle: 'Connect any Model Context Protocol server — stdio, HTTP, and SSE',
+    file: 'mcp.md',
+    icon: 'plug',
+    color: 'teal',
+    category: 'Integrations',
+    children: [
+      { id: 'mcp/overview', title: 'Overview & Architecture', file: 'mcp/overview.md', icon: 'book-open' },
+      { id: 'mcp/stdio-servers', title: 'stdio Servers', file: 'mcp/stdio-servers.md', icon: 'terminal' },
+      { id: 'mcp/http-servers', title: 'HTTP / SSE Servers', file: 'mcp/http-servers.md', icon: 'radio' },
+      { id: 'mcp/config-reference', title: 'Config Reference', file: 'mcp/config-reference.md', icon: 'settings' },
+      { id: 'mcp/examples', title: 'Examples', file: 'mcp/examples.md', icon: 'box' },
+    ],
+  },
 ]
 
 // Flat lookup of all pages (parent + children)
@@ -278,6 +294,7 @@ const icons = {
   repeat: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
   'minimize-2': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" x2="3" y1="14" y2="21"/><line x1="21" x2="14" y1="3" y2="10"/></svg>`,
   pause: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
+  plug: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8H6a2 2 0 0 0-2 2v3a6 6 0 0 0 6 6h0a6 6 0 0 0 6-6v-3a2 2 0 0 0-2-2z"/></svg>`,
 }
 
 const colorMap = {
@@ -287,6 +304,7 @@ const colorMap = {
   amber: 'text-amber-600 bg-amber-500/10 border-amber-500/20',
   emerald: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20',
   rose: 'text-rose-600 bg-rose-500/10 border-rose-500/20',
+  teal: 'text-teal-600 bg-teal-500/10 border-teal-500/20',
 }
 
 // State: which sidebar sections are expanded
@@ -324,6 +342,7 @@ function renderHome() {
         <div class="hidden md:flex items-center gap-8 text-[11px] font-black uppercase tracking-widest text-slate-400">
           <a href="#/docs/getting-started" class="hover:text-slate-900 transition-colors">Documentation</a>
           <a href="#/docs/adapters" class="hover:text-slate-900 transition-colors">Adapters</a>
+          <a href="#/docs/mcp" class="hover:text-slate-900 transition-colors">MCP</a>
           <button class="flex items-center gap-2 hover:text-slate-900 transition-colors" onclick="openSearch()">
             ${icons.search} Search
             <span class="search-kbd">⌘K</span>
@@ -532,7 +551,7 @@ async function renderDocs(docId) {
 
         <div class="p-6 border-t border-black/5">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Version v0.1.x</span>
+            <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Version v1.2.0</span>
             <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
           </div>
         </div>
