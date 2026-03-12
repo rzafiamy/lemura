@@ -27,6 +27,8 @@ interface SessionConfig {
   skills?: ISkill[];
   ragAdapter?: IRAGAdapter;
   compressionStrategies?: IContextStrategy[];
+  media?: MediaConfig;
+  media?: MediaConfig;
 
   // ─── Advanced Execution ─────────────────────────────────────
   enableGoalPlanning?: boolean;
@@ -42,6 +44,7 @@ interface SessionConfig {
 
   // ─── Tool Processing ────────────────────────────────────────
   toolResponseProcessor?: IToolResponseProcessor;
+  toolFirewall?: ToolFirewallConfig;
 
   // ─── Auto-Discovery ─────────────────────────────────────────
   autodiscoverTools?: boolean;       // default: false
@@ -139,6 +142,85 @@ const session = new SessionManager({
 ```
 
 > **Tip:** Budget fields are additive — make sure they don't collectively exceed `maxTokens - (your expected conversation size)`. A good starting rule: tools + RAG + skills ≤ 50% of `maxTokens`.
+
+---
+
+## Media Bridge Configuration
+
+Enable built-in media tools (ASR, TTS, vision, image gen) so the agent can call them directly:
+
+```ts
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o-mini',
+  maxTokens: 128_000,
+  media: {
+    enableTools: true,
+    toolPrefix: 'media_'
+  }
+});
+```
+
+You can still use `MediaBridge` directly in your app without enabling tools.
+
+`MediaConfig` shape:
+
+```ts
+type MediaConfig = {
+  enableTools?: boolean;
+  toolPrefix?: string;
+};
+```
+
+---
+
+## Tool Firewall
+
+The firewall controls whether a tool call is executed. It supports `accept`, `deny`, and `ask` decisions based on regex rules.
+
+```ts
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o-mini',
+  maxTokens: 128_000,
+  toolFirewall: {
+    defaultDecision: 'ask',
+    rules: [
+      { name: '^read_.*', decision: 'accept', reason: 'Read-only tools are safe' },
+      { name: '^write_.*', decision: 'ask', reason: 'Writes require approval' },
+      { name: '^execute_shell$', arguments: 'rm\\s+-rf', decision: 'deny', reason: 'Dangerous command' }
+    ],
+    onAsk: async (toolName, argsJson) => {
+      // Ask user in your UI and return 'accept' or 'deny'
+      return 'deny';
+    }
+  }
+});
+```
+
+Behavior:
+- `accept`: tool executes normally.
+- `deny`: tool is blocked and the agent receives an error response.
+- `ask`: delegates to `onAsk`. If no handler is provided, the tool is blocked.
+
+`ToolFirewallConfig` shape:
+
+```ts
+type ToolDecision = 'accept' | 'deny' | 'ask';
+
+type ToolFirewallRule = {
+  name?: string;        // regex on tool name
+  arguments?: string;   // regex on JSON args string
+  decision: ToolDecision;
+  reason?: string;
+};
+
+type ToolFirewallConfig = {
+  defaultDecision?: ToolDecision;
+  rules?: ToolFirewallRule[];
+  onAsk?: (toolName: string, argsJson: string) => Promise<'accept' | 'deny'> | 'accept' | 'deny';
+};
+```
 
 ---
 

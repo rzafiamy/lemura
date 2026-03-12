@@ -83,6 +83,7 @@ Explore the architecture and advanced capabilities of `lemura` at [lemura.makix.
 - 🧹 [**Context Management**](./docs/guides/context-management.md) — Advanced compression strategies.
 - 🔌 [**Adapters**](./docs/guides/adapters.md) — Connecting to OpenAI, Groq, Anthropic, and more.
 - 🛠️ [**Tools and Skills**](./docs/guides/tools-and-skills.md) — Extending agent capabilities.
+- 🎛️ [**Media Bridge**](./docs/guides/media-bridge.md) — ASR, TTS, vision, and image generation.
 - ⚡ [**Advanced Execution**](./docs/guides/advanced-execution.md) — Goal planning and continuation.
 
 ## 📦 API Overview

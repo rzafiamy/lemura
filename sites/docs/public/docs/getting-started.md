@@ -55,5 +55,7 @@ Each doc section adds a new capability to Makix:
 | **Adapters** | Connect INfodev/Qwen 3.5 4B, switch providers in one line | [Provider Adapters →](/docs/adapters) |
 | **Context Management** | Keep Makix working after weeks of daily use (16K budget) | [Context Management →](/docs/context-management) |
 | **Tools & Skills** | Add weather, search, calendar, messaging + personality | [Tools & Skills →](/docs/tools-and-skills) |
+| **Media Bridge** | Add ASR, TTS, vision, and image generation | [Media Bridge →](/docs/media-bridge) |
+| **Tool Firewall** | Gate tool calls with ask/accept/deny rules | [Tool Firewall →](/docs/tools-and-skills/tool-firewall) |
 | **RAG Integration** | Give Makix access to your personal notes | [RAG Integration →](/docs/rag-integration) |
 | **Advanced Runtime** | Let Makix plan and execute complex multi-step tasks | [Advanced Runtime →](/docs/advanced-execution) |

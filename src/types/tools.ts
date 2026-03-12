@@ -1,5 +1,6 @@
 import { IRAGAdapter } from './rag.js';
 import { ILogger } from './logger.js';
+import { IProviderAdapter } from './adapters.js';
 
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 
@@ -7,6 +8,7 @@ export interface ToolContext {
     sessionId: string;
     turnIndex: number;
     logger: ILogger;
+    adapter?: IProviderAdapter;
     ragAdapter?: IRAGAdapter;
     stmRegistry?: ShortTermMemoryRegistry;
     scratchpad?: string;

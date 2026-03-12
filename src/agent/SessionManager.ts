@@ -14,6 +14,9 @@ import {
     removeScratchpadTool,
     summarizeSandwichTool
 } from '../tools/builtin/short_term_memory.js';
+import { createMediaTools } from '../tools/builtin/media.js';
+import { MediaBridge } from '../media/MediaBridge.js';
+import { evaluateToolFirewall } from '../tools/ToolFirewall.js';
 
 export class SessionManager {
     private contextManager: ContextManager;
@@ -24,6 +27,7 @@ export class SessionManager {
     private config: SessionConfig;
     private iterations: number = 0;
     private logger: ILogger;
+    private media: MediaBridge;
 
     constructor(config: SessionConfig) {
         this.config = config;
@@ -32,6 +36,7 @@ export class SessionManager {
         this.contextManager = new ContextManager();
         this.toolRegistry = new ToolRegistry(config.tools || []);
         this.skillInjector = new SkillInjector(config.skills || []);
+        this.media = new MediaBridge(this.adapter);
 
         for (const strategy of config.compressionStrategies || []) {
             this.contextManager.registerStrategy(strategy);
@@ -47,6 +52,13 @@ export class SessionManager {
             this.toolRegistry.register(writeScratchpadTool);
             this.toolRegistry.register(removeScratchpadTool);
             this.toolRegistry.register(summarizeSandwichTool);
+        }
+
+        if (config.media?.enableTools) {
+            const prefix = config.media.toolPrefix || 'media_';
+            for (const tool of createMediaTools(prefix)) {
+                this.toolRegistry.register(tool);
+            }
         }
 
         this.context = {
@@ -65,6 +77,10 @@ export class SessionManager {
 
     getHistory() {
         return [...this.context.turns];
+    }
+
+    getMedia() {
+        return this.media;
     }
 
     async run(userMessage: string | ContentBlock[]): Promise<string> {
@@ -136,11 +152,53 @@ export class SessionManager {
                 const toolResults = [];
                 for (const tc of response.toolCalls) {
                     try {
+                        const firewall = evaluateToolFirewall(
+                            this.config.toolFirewall,
+                            tc.name,
+                            tc.arguments,
+                            this.logger
+                        );
+
+                        if (firewall.decision === 'ask') {
+                            if (this.config.toolFirewall?.onAsk) {
+                                const userDecision = await this.config.toolFirewall.onAsk(tc.name, tc.arguments);
+                                if (userDecision === 'deny') {
+                                    this.logger.warn(`Tool blocked by firewall (ask -> deny): ${tc.name}`, {
+                                        reason: firewall.reason
+                                    });
+                                    toolResults.push({
+                                        toolCallId: tc.id,
+                                        content: `Blocked by tool firewall: ${firewall.reason}`
+                                    });
+                                    continue;
+                                }
+                            } else {
+                                this.logger.warn(`Tool blocked by firewall (ask without handler): ${tc.name}`, {
+                                    reason: firewall.reason
+                                });
+                                toolResults.push({
+                                    toolCallId: tc.id,
+                                    content: `Blocked by tool firewall: ${firewall.reason}`
+                                });
+                                continue;
+                            }
+                        }
+
+                        if (firewall.decision === 'deny') {
+                            this.logger.warn(`Tool blocked by firewall: ${tc.name}`, { reason: firewall.reason });
+                            toolResults.push({
+                                toolCallId: tc.id,
+                                content: `Blocked by tool firewall: ${firewall.reason}`
+                            });
+                            continue;
+                        }
+
                         const args = JSON.parse(tc.arguments);
                         const executeContext: any = {
                             sessionId: 'default',
                             turnIndex: this.context.turns.length,
                             logger: this.logger,
+                            adapter: this.adapter,
                             stmRegistry: this.config.stmRegistry,
                             scratchpad: this.context.scratchpad
                         };

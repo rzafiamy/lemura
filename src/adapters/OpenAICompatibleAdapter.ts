@@ -333,7 +333,7 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
         const blob = new Blob([bytes], { type: request.mimeType });
         const formData = new FormData();
         formData.append('file', blob, 'audio.webm');
-        formData.append('model', 'whisper-1');
+        formData.append('model', request.model || 'whisper-1');
         if (request.language) formData.append('language', request.language);
 
         const response = await this.fetchWithRetry(`${this.baseUrl}/audio/transcriptions`, {
@@ -356,7 +356,7 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
         const response = await this.fetchWithRetry(`${this.baseUrl}/audio/speech`, {
             method: 'POST',
             body: JSON.stringify({
-                model: 'tts-1',
+                model: request.model || 'tts-1',
                 input: request.text,
                 voice: request.voiceId || 'alloy',
                 response_format: request.format || 'mp3'
@@ -382,7 +382,7 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
 
     async describeImage(request: VisionRequest): Promise<VisionResponse> {
         const payload = {
-            model: this.defaultModel,
+            model: request.model || this.defaultModel,
             messages: [
                 {
                     role: 'user',
@@ -416,7 +416,7 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
             method: 'POST',
             body: JSON.stringify({
                 prompt: request.prompt,
-                model: 'dall-e-3',
+                model: request.model || 'dall-e-3',
                 n: 1,
                 size: request.dimensions || '1024x1024'
             })

@@ -57,3 +57,15 @@ const devAdapter = new OpenAICompatibleAdapter({
 ```
 
 See [OpenAI-Compatible Adapter →](/docs/adapters/openai-compatible) for the full provider compatibility table.
+
+---
+
+## Capability Checks (Vision Support)
+Adapters expose a `getModelInfo()` method so you can detect whether the current model supports vision or tools.
+
+```ts
+const info = adapter.getModelInfo();
+if (!info.supportsVision) {
+  throw new Error('Vision not supported by this adapter/model.');
+}
+```

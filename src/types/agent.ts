@@ -22,6 +22,26 @@ export interface IToolResponseProcessor {
     compress(response: string, evaluation: ToolResponseEvaluation): string;
 }
 
+export interface MediaConfig {
+    enableTools?: boolean;
+    toolPrefix?: string;
+}
+
+export type ToolDecision = 'accept' | 'deny' | 'ask';
+
+export interface ToolFirewallRule {
+    name?: string;
+    arguments?: string;
+    decision: ToolDecision;
+    reason?: string;
+}
+
+export interface ToolFirewallConfig {
+    defaultDecision?: ToolDecision;
+    rules?: ToolFirewallRule[];
+    onAsk?: (toolName: string, argsJson: string) => Promise<'accept' | 'deny'> | 'accept' | 'deny';
+}
+
 /** Configuration for a lemura Session */
 export interface SessionConfig {
     /** The provider adapter to use */
@@ -44,6 +64,12 @@ export interface SessionConfig {
     systemPrompt?: string;
     /** Logger */
     logger?: ILogger;
+
+    /** Media bridge config */
+    media?: MediaConfig;
+
+    /** Tool firewall config */
+    toolFirewall?: ToolFirewallConfig;
 
     // Advanced execution config
     /** Budget for tool responses before compression */

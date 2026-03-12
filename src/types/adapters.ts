@@ -84,6 +84,7 @@ export interface TranscriptionRequest {
     audioBase64: string;
     mimeType: string;
     language?: string;
+    model?: string;
 }
 
 export interface TranscriptionResponse {
@@ -96,6 +97,7 @@ export interface SynthesisRequest {
     text: string;
     voiceId: string;
     format: 'mp3' | 'wav' | 'pcm';
+    model?: string;
 }
 
 export interface AudioChunk {
@@ -105,6 +107,7 @@ export interface AudioChunk {
 export interface VisionRequest {
     imageBase64: string;
     prompt?: string;
+    model?: string;
 }
 
 export interface VisionResponse {
@@ -115,6 +118,7 @@ export interface VisionResponse {
 export interface ImageGenRequest {
     prompt: string;
     dimensions: string;
+    model?: string;
 }
 
 export interface ImageGenResponse {

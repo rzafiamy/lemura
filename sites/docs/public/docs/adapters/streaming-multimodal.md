@@ -64,21 +64,16 @@ Convert speech to text using `adapter.transcribe()`:
 
 ```typescript
 interface TranscriptionRequest {
-  audio: Blob | ArrayBuffer; // Audio data
-  mimeType: string;          // 'audio/webm', 'audio/mp4', 'audio/wav'
-  languageHint?: string;     // BCP-47 code e.g. 'en', 'fr', 'ja'
-  prompt?: string;           // Context hint to improve accuracy
+  audioBase64: string;   // Base64 audio payload
+  mimeType: string;      // 'audio/webm', 'audio/mp4', 'audio/wav'
+  language?: string;     // e.g. 'en', 'fr', 'ja'
+  model?: string;        // Optional ASR model override
 }
 
 interface TranscriptionResponse {
-  transcript: string;        // The transcribed text
-  confidence: number;        // 0–1 confidence score
-  detectedLanguage: string;  // BCP-47 code of detected language
-  words?: Array<{            // Optional word-level timestamps
-    word: string;
-    start: number;           // seconds from start
-    end: number;
-  }>;
+  transcript: string;    // The transcribed text
+  confidence: number;    // 0–1 confidence score
+  language: string;      // Detected or inferred language
 }
 ```
 
@@ -89,23 +84,25 @@ const chunks: Blob[] = [];
 mediaRecorder.ondataavailable = e => chunks.push(e.data);
 mediaRecorder.onstop = async () => {
   const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
 
   const result = await adapter.transcribe({
-    audio: audioBlob,
+    audioBase64,
     mimeType: 'audio/webm',
-    languageHint: 'en',
+    language: 'en',
+    model: 'whisper-1',
   });
 
   console.log(`Transcript: ${result.transcript}`);
   console.log(`Confidence: ${(result.confidence * 100).toFixed(1)}%`);
 
-  // Feed the transcript into the agent
   const response = await session.run(result.transcript);
   speakResponse(response);
 };
 ```
 
-> **Note:** Not all adapters support ASR. If `transcribe()` is called on an adapter without ASR support, it throws `LemuraAdapterError` with code `CAPABILITY_NOT_SUPPORTED`. Use `adapter.getModelInfo().capabilities` to check.
+> **Note:** Not all adapters support ASR. If `transcribe()` is called on an adapter without ASR support, it throws `LemuraAdapterError` with code `CAPABILITY_NOT_SUPPORTED`.
 
 ---
 
@@ -118,50 +115,44 @@ interface SynthesisRequest {
   text: string;
   voiceId: string;           // Provider-specific voice ID
   format: 'mp3' | 'wav' | 'pcm';  // Output audio format
-  speed?: number;            // 0.5–2.0, default: 1.0
+  model?: string;            // Optional TTS model override
 }
 
 interface AudioChunk {
-  data: Uint8Array;          // Raw audio bytes
-  finished: boolean;
+  audioBase64: string;       // Base64 audio chunk
 }
 ```
 
 ```typescript
 // Stream TTS to an output file
-import { createWriteStream } from 'fs';
-
-const writeStream = createWriteStream('output.mp3');
-
 for await (const chunk of adapter.synthesize({
   text: "Hello! I'm your AI assistant powered by lemura.",
   voiceId: 'alloy',          // OpenAI TTS voice
   format: 'mp3',
+  model: 'tts-1'
 })) {
-  writeStream.write(Buffer.from(chunk.data));
-  if (chunk.finished) break;
+  // chunk.audioBase64
 }
-
-writeStream.end();
-console.log('Audio saved to output.mp3');
 ```
 
 ### Browser playback via Web Audio API
 
 ```typescript
 // Collect all chunks, then play
-const audioChunks: Uint8Array[] = [];
+const audioChunks: string[] = [];
 
 for await (const chunk of adapter.synthesize({
   text: response,
   voiceId: 'nova',
   format: 'mp3',
 })) {
-  audioChunks.push(chunk.data);
-  if (chunk.finished) break;
+  audioChunks.push(chunk.audioBase64);
 }
 
-const audioBlob = new Blob(audioChunks, { type: 'audio/mpeg' });
+const binary = audioChunks.map(c => atob(c)).join('');
+const bytes = new Uint8Array(binary.length);
+for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+const audioBlob = new Blob([bytes], { type: 'audio/mpeg' });
 const audioUrl = URL.createObjectURL(audioBlob);
 const audio = new Audio(audioUrl);
 audio.play();
@@ -175,10 +166,9 @@ Describe or analyze images with `describeImage()`:
 
 ```typescript
 interface VisionRequest {
-  imageUrl?: string;     // Public URL of the image
-  imageBase64?: string;  // Base64-encoded image data
-  mimeType?: string;     // e.g. 'image/png', 'image/jpeg'
+  imageBase64: string;   // Base64-encoded image data
   prompt?: string;       // Specific question about the image
+  model?: string;        // Optional vision model override
 }
 
 interface VisionResponse {
@@ -191,8 +181,9 @@ interface VisionResponse {
 ```typescript
 // Analyze a chart image
 const result = await adapter.describeImage({
-  imageUrl: 'https://example.com/sales-chart-q4.png',
+  imageBase64: '<base64-image>',
   prompt: 'What trend does this chart show? Are sales increasing or decreasing?',
+  model: 'gpt-4o-mini'
 });
 
 console.log(result.description);

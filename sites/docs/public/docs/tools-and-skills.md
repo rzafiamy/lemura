@@ -28,6 +28,7 @@ Tools give your agent the ability to **act** in the world. Skills give it the ab
 | [Tool Discovery →](/docs/tools-and-skills/tool-discovery) | Auto-discovery from `node_modules`, dynamic registration |
 | [Real-World Tool Examples →](/docs/tools-and-skills/tool-examples) | `search_web`, file system, database, HTTP API, shell tools |
 | [Skills System →](/docs/tools-and-skills/skills-system) | Skill file format, injection positions, tier/budget management |
+| [Tool Firewall →](/docs/tools-and-skills/tool-firewall) | Ask/accept/deny policy for tool calls |
 
 ---
 
@@ -47,3 +48,49 @@ const session = new SessionManager({
 ```
 
 See [Defining Tools →](/docs/tools-and-skills/defining-tools) for the complete `IToolDefinition` interface and [Skills System →](/docs/tools-and-skills/skills-system) for the tier/budget system.
+
+---
+
+## Built-In Media Tools (Optional)
+If you want ASR, TTS, Vision, and Image Generation to be callable by the agent, enable media tools in `SessionConfig`:
+
+```ts
+const session = new SessionManager({
+  adapter,
+  model: 'qwen3.5-4b',
+  maxTokens: 16_000,
+  media: { enableTools: true, toolPrefix: 'media_' }
+});
+```
+
+Each media tool accepts an optional `model` parameter so the agent can target a specific modality model.
+
+---
+
+## Tool Firewall (Ask/Accept/Deny)
+The tool firewall lets you gate tool calls with allow/deny rules and optional user approval.
+
+```ts
+const session = new SessionManager({
+  adapter,
+  model: 'qwen3.5-4b',
+  maxTokens: 16_000,
+  toolFirewall: {
+    defaultDecision: 'ask',
+    rules: [
+      { name: '^read_.*', decision: 'accept', reason: 'Read-only tools are safe' },
+      { name: '^write_.*', decision: 'ask', reason: 'Writes require approval' },
+      { name: '^execute_shell$', arguments: 'rm\\s+-rf', decision: 'deny', reason: 'Dangerous command' }
+    ],
+    onAsk: async (toolName, argsJson) => {
+      // Ask the user in your UI and return 'accept' or 'deny'
+      return 'deny';
+    }
+  }
+});
+```
+
+Firewall behavior:
+- `accept`: tool executes.
+- `deny`: tool is blocked and the agent receives a tool error.
+- `ask`: your app can decide via `onAsk`. If no handler is provided, the call is blocked.
