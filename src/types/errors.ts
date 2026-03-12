@@ -84,3 +84,27 @@ export class LemuraToolTimeoutError extends LemuraError {
         this.name = 'LemuraToolTimeoutError';
     }
 }
+
+/** Base error thrown for any MCP server communication failure */
+export class LemuraMCPError extends LemuraError {
+    constructor(message: string, code = 'MCP_ERROR', problem?: string, hints: string[] = []) {
+        super(message, code, problem, hints);
+        this.name = 'LemuraMCPError';
+    }
+}
+
+/** Error thrown when an MCP server cannot be connected to (spawn failure, network error, init failure) */
+export class LemuraMCPConnectionError extends LemuraMCPError {
+    constructor(message: string, problem?: string, hints: string[] = []) {
+        super(message, 'MCP_CONNECTION_FAILED', problem, hints);
+        this.name = 'LemuraMCPConnectionError';
+    }
+}
+
+/** Error thrown when a call to an MCP server tool exceeds the configured timeout */
+export class LemuraMCPTimeoutError extends LemuraMCPError {
+    constructor(message: string) {
+        super(message, 'MCP_TOOL_TIMEOUT');
+        this.name = 'LemuraMCPTimeoutError';
+    }
+}

@@ -5,6 +5,7 @@ import { ILogger } from './logger.js';
 import { ISkill } from './skills.js';
 import { IRAGAdapter } from './rag.js';
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
+import { MCPServerConfig } from './mcp.js';
 
 export interface ToolResponseEvaluation {
     relevanceScore: number;
@@ -144,6 +145,19 @@ export interface SessionConfig {
 
     /** Callback for granular trace events (planning, budgets, tools, etc.) */
     onTrace?: (event: TraceEvent) => void;
+
+    /**
+     * MCP (Model Context Protocol) server configurations.
+     * Each server is connected at session construction, its tools are discovered
+     * and registered alongside native tools — fully transparent to the ReAct loop.
+     *
+     * @example
+     * mcpServers: [
+     *   { name: 'github', transport: 'stdio', command: 'npx', args: ['@modelcontextprotocol/server-github'] },
+     *   { name: 'db_tools', transport: 'http', url: 'http://localhost:3001' }
+     * ]
+     */
+    mcpServers?: MCPServerConfig[];
 }
 
 /** Rich trace event for observability */

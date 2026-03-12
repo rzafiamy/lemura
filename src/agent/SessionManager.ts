@@ -33,6 +33,7 @@ import { FinalResponseFormatter } from './execution/FinalResponseFormatter.js';
 import { ToolResponseProcessor } from './execution/ToolResponseProcessor.js';
 import { GoalInjector } from './execution/GoalInjector.js';
 import { ContinuationPlanner, ContinuationPlan } from './execution/ContinuationPlanner.js';
+import { MCPClientRegistry } from '../mcp/MCPClientRegistry.js';
 
 /**
  * Core entry point for lemura agent sessions.
@@ -67,6 +68,11 @@ export class SessionManager {
     private toolResponseProcessor: ToolResponseProcessor;
     private goalInjector: GoalInjector | null = null;
     private continuationPlanner: ContinuationPlanner | null = null;
+
+    // MCP
+    private mcpRegistry: MCPClientRegistry | null = null;
+    /** Resolves when all MCP servers are connected; used by run() and stream() */
+    private mcpReady: Promise<void> | null = null;
 
     // Tool execution budget tracking
     private totalToolCallCount: number = 0;
@@ -127,6 +133,12 @@ export class SessionManager {
         // The goal is initialised on the first run() call once we know the user message.
         this.goalInjector = null;
 
+        // MCP server setup (non-blocking — tools are registered before first run())
+        if (config.mcpServers && config.mcpServers.length > 0) {
+            this.mcpRegistry = new MCPClientRegistry(this.logger);
+            this.mcpReady = this._initMCP(config.mcpServers);
+        }
+
         // Emit initial system trace
         this.emitTrace('system', 'session_init', {
             config: {
@@ -180,6 +192,51 @@ export class SessionManager {
      */
     getMedia() {
         return this.media;
+    }
+
+    // -----------------------------------------------------------------------
+    // MCP initialisation
+    // -----------------------------------------------------------------------
+
+    /**
+     * Connects all configured MCP servers and registers their bridged tools.
+     * Called from the constructor as a fire-and-start async task; `run()` and
+     * `stream()` await `this.mcpReady` before executing.
+     */
+    private async _initMCP(mcpServers: NonNullable<import('../types/agent.js').SessionConfig['mcpServers']>): Promise<void> {
+        if (!this.mcpRegistry) return;
+
+        this.emitTrace('system', 'mcp_init_start', { serverCount: mcpServers.length });
+        this.logger.info(`[MCP] Connecting to ${mcpServers.length} server(s)...`);
+
+        for (const serverConfig of mcpServers) {
+            try {
+                await this.mcpRegistry.register(serverConfig.name, serverConfig);
+                this.emitTrace('system', 'mcp_server_connected', { server: serverConfig.name });
+            } catch (err: unknown) {
+                const msg = (err as Error).message ?? String(err);
+                this.logger.error(`[MCP] Failed to connect '${serverConfig.name}': ${msg}`);
+                this.emitTrace('error', 'mcp_server_failed', { server: serverConfig.name, error: msg });
+                // Non-fatal: continue connecting remaining servers
+            }
+        }
+
+        // Discover and register bridged tools into the shared ToolRegistry
+        const bridgedTools = await this.mcpRegistry.discoverTools();
+        for (const tool of bridgedTools) {
+            try {
+                this.toolRegistry.register(tool);
+            } catch {
+                // Already registered (name collision with native tool) — skip
+                this.logger.warn(`[MCP] Tool '${tool.name}' conflicts with an existing tool — skipping`);
+            }
+        }
+
+        this.logger.info(`[MCP] ${bridgedTools.length} MCP tool(s) registered`);
+        this.emitTrace('system', 'mcp_init_done', {
+            servers: this.mcpRegistry.getRegisteredServers(),
+            toolCount: bridgedTools.length
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -405,6 +462,9 @@ export class SessionManager {
      * @throws {LemuraMaxIterationsError} When the loop exceeds `maxIterations`
      */
     async run(userMessage: string | ContentBlock[]): Promise<string> {
+        // Ensure MCP servers are connected before first use
+        if (this.mcpReady) await this.mcpReady;
+
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
         this.logger.info(`Starting new session run`, {
             model: this.config.model,
@@ -631,6 +691,9 @@ export class SessionManager {
      * }
      */
     async *stream(userMessage: string | ContentBlock[]): AsyncIterable<string> {
+        // Ensure MCP servers are connected before first use
+        if (this.mcpReady) await this.mcpReady;
+
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
         this.logger.info(`Starting streaming session run`, {
             model: this.config.model,
@@ -799,5 +862,27 @@ export class SessionManager {
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
         this.goalInjector = null;
         this.logger.debug('Session reset');
+    }
+
+    /**
+     * Closes the session and disconnects all MCP servers.
+     *
+     * Call this when you are done with the session and have registered MCP servers,
+     * to ensure child processes are terminated and HTTP connections are released.
+     *
+     * @example
+     * const session = new SessionManager({ ..., mcpServers: [...] });
+     * try {
+     *   await session.run('Hello');
+     * } finally {
+     *   await session.close();
+     * }
+     */
+    async close(): Promise<void> {
+        if (this.mcpRegistry) {
+            await this.mcpRegistry.disconnectAll();
+            this.emitTrace('system', 'mcp_disconnected', {});
+            this.logger.debug('All MCP servers disconnected');
+        }
     }
 }

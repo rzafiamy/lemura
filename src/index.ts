@@ -7,3 +7,4 @@ export * from './skills/index.js';
 export * from './rag/index.js';
 export * from './agent/index.js';
 export * from './logger/index.js';
+export * from './mcp/index.js';
