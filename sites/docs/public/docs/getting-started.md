@@ -19,7 +19,7 @@
 | [Installation →](/docs/getting-started/installation) | `npm install lemura`, Node.js requirements, environment setup |
 | [Quick Start →](/docs/getting-started/quick-start) | Build and run your first Makix agent in 5 minutes |
 | [Core Concepts →](/docs/getting-started/core-concepts) | ReAct loop, SessionManager, how all the pieces fit together |
-| [SessionConfig Reference →](/docs/getting-started/session-config) | Every configuration option explained |
+| [SessionConfig Reference →](/docs/session-config) | Every configuration option explained |
 | [Error Handling →](/docs/getting-started/error-handling) | Typed error classes, recovery strategies |
 
 ---
