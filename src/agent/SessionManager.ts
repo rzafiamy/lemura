@@ -523,6 +523,89 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         this.perToolCallCount.set(toolName, (this.perToolCallCount.get(toolName) ?? 0) + 1);
     }
 
+    // -----------------------------------------------------------------------
+    // Blob detection helpers
+    // -----------------------------------------------------------------------
+
+    private isProbablyBase64(value: string): boolean {
+        const v = value.trim();
+        if (v.startsWith('data:') && v.includes(';base64,')) return true;
+        if (v.length < 4096) return false;
+        if (/[^A-Za-z0-9+/=]/.test(v)) return false;
+        return true;
+    }
+
+    private isBinaryLike(value: unknown): boolean {
+        if (!value) return false;
+        if (typeof ArrayBuffer !== 'undefined') {
+            if (value instanceof ArrayBuffer) return true;
+            if (ArrayBuffer.isView(value)) return true;
+        }
+        if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return true;
+        return false;
+    }
+
+    private async storeBlob(content: any, metadata: Record<string, unknown>): Promise<string | null> {
+        if (!this.config.stmRegistry) return null;
+        return this.config.stmRegistry.register(content, 'blob', metadata);
+    }
+
+    private async scrubBlobFields(
+        value: any,
+        toolName: string,
+        depth: number = 0
+    ): Promise<{ value: any; changed: boolean }> {
+        if (!value || typeof value !== 'object') return { value, changed: false };
+        if (depth > 2) return { value, changed: false };
+
+        if (Array.isArray(value)) {
+            let changed = false;
+            const out = [];
+            for (const item of value) {
+                const res = await this.scrubBlobFields(item, toolName, depth + 1);
+                out.push(res.value);
+                if (res.changed) changed = true;
+            }
+            return { value: out, changed };
+        }
+
+        const obj: Record<string, any> = { ...value };
+        let changed = false;
+        for (const [key, v] of Object.entries(obj)) {
+            if (typeof v === 'string' && this.isProbablyBase64(v)) {
+                const ref = await this.storeBlob(v, {
+                    toolName,
+                    key,
+                    encoding: v.startsWith('data:') ? 'data_url' : 'base64'
+                });
+                if (ref) {
+                    obj[key] = ref;
+                    obj[`${key}Note`] = 'Stored in STM';
+                    changed = true;
+                }
+                continue;
+            }
+
+            if (this.isBinaryLike(v)) {
+                const ref = await this.storeBlob(v, { toolName, key });
+                if (ref) {
+                    obj[key] = ref;
+                    obj[`${key}Note`] = 'Stored in STM';
+                    changed = true;
+                }
+                continue;
+            }
+
+            if (typeof v === 'object' && v !== null) {
+                const nested = await this.scrubBlobFields(v, toolName, depth + 1);
+                obj[key] = nested.value;
+                if (nested.changed) changed = true;
+            }
+        }
+
+        return { value: obj, changed };
+    }
+
     /**
      * Processes a firewall decision for a tool call.
      * Returns true to proceed, false to block.
@@ -636,6 +719,24 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 this.context.scratchpad = resObj['newScratchpad'] as string;
                 finalResult = resObj['note'] || 'Scratchpad updated';
                 this.emitTrace('planning', 'scratchpad_update', { note: resObj['note'] });
+            }
+        }
+
+        // Blob/binary guard: stash in STM and return refs
+        if (this.config.stmRegistry) {
+            if (typeof finalResult === 'string' && this.isProbablyBase64(finalResult)) {
+                const ref = await this.storeBlob(finalResult, { toolName: tc.name, encoding: 'base64' });
+                if (ref) {
+                    finalResult = { blobRef: ref, note: 'Binary content stored in STM' };
+                }
+            } else if (this.isBinaryLike(finalResult)) {
+                const ref = await this.storeBlob(finalResult, { toolName: tc.name });
+                if (ref) {
+                    finalResult = { blobRef: ref, note: 'Binary content stored in STM' };
+                }
+            } else if (typeof finalResult === 'object' && finalResult !== null) {
+                const scrubbed = await this.scrubBlobFields(finalResult, tc.name);
+                if (scrubbed.changed) finalResult = scrubbed.value;
             }
         }
 

@@ -423,9 +423,20 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
         });
 
         const data = await response.json();
+        if (data?.error) {
+            throw new LemuraAdapterError(data.error.message || 'Image generation failed', 'IMAGE_GEN_ERROR');
+        }
+        const first = data?.data?.[0] || {};
+        const imageUrl =
+            first.url ||
+            (first.b64_json ? `data:image/png;base64,${first.b64_json}` : null) ||
+            (first.image_url?.url || null);
+        if (!imageUrl) {
+            throw new LemuraAdapterError('Image generation returned no image URL or base64 payload', 'IMAGE_GEN_EMPTY');
+        }
         return {
-            imageUrl: data.data[0].url,
-            revisedPrompt: data.data[0].revised_prompt
+            imageUrl,
+            revisedPrompt: first.revised_prompt
         };
     }
 }
