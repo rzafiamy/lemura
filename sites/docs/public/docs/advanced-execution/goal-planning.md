@@ -30,25 +30,26 @@ const session = new SessionManager({
   model: 'gpt-4o',
   maxTokens: 128_000,
   enableGoalPlanning: true,
-  goalInjectionFrequency: 'always',     // re-inject before every provider call
-  goalInjectionPosition: 'system_prompt', // inject into system prompt area
+  goalInjectionFrequency: 'always',       // re-inject before every provider call
+  goalInjectionPosition: 'system_prompt', // append to system prompt
 });
 ```
+
+When `enableGoalPlanning: true`, lemura automatically runs a **mini-planning step** before the first tool call to decompose the user's message into sub-goals and success criteria.
 
 ---
 
 ## The Mini-Planning Step
 
-Before the first tool call, lemura runs a dedicated planning prompt:
+When `enableGoalPlanning` is true and no manual goal has been set, lemura sends one extra LLM call before the first ReAct iteration:
 
-```typescript
-// Internal prompt (sent to the LLM):
-`Given this goal: "${userMessage}"
+```
+Given this goal: "Research Q4 2025 EV market trends and create a summary report"
 
 1. List the sub-goals needed to achieve this (max 5, be specific)
 2. List success criteria — what does "done" look like? (max 3, binary, measurable)
 
-Respond ONLY with JSON: { "subGoals": string[], "successCriteria": string[] }`
+Respond ONLY with valid JSON: { "subGoals": string[], "successCriteria": string[] }
 ```
 
 For the EV market research example:
@@ -69,11 +70,13 @@ For the EV market research example:
 }
 ```
 
+> **Performance note:** The mini-planning step adds one LLM call per session. For simple, single-turn queries this is unnecessary overhead — only enable it for multi-step research or workflow tasks.
+
 ---
 
 ## The Goal Injection Block
 
-The parsed goal is stored in `context.metadata['goal']` and injected before every provider call:
+The goal is stored in `context.metadata['goal']` and injected before every provider call:
 
 ```
 [CURRENT GOAL]
@@ -97,51 +100,8 @@ Sub-goals completed:
 
 This block:
 - **Survives context compression** — it's in `context.metadata`, which is never compressed
-- **Is re-injected on every turn** — even after the system prompt is truncated
-- **Updates dynamically** — completed sub-goals move to the completed section
-
----
-
-## Goal Self-Evaluation
-
-Before generating the final response, lemura runs a self-evaluation:
-
-```typescript
-// Internal prompt:
-`Have I met all success criteria for the current goal?
-
-Goal: ${goal.statement}
-
-Criteria:
-1. Summary covers EU, US, and China markets with specific figures → YES/NO
-2. Report includes sources for all statistics → YES/NO
-3. Output is formatted markdown, 500-1000 words → YES/NO
-
-Respond with JSON: {
-  "status": "ACHIEVED" | "PARTIALLY_ACHIEVED" | "FAILED",
-  "criteriaResults": [{ "criterion": string, "met": boolean, "reason": string }]
-}`
-```
-
-This drives the mandatory final response format:
-
-```markdown
-## Goal Status: ACHIEVED
-
-### What was accomplished
-Researched EV market data across EU, US, and China for Q4 2025.
-Identified key trends: Chinese market dominance (65% global share), US growth (23%),
-EU deceleration due to reduced subsidies.
-
-### Remaining tasks
-None
-
-### Failed steps
-None
-
-### Result
-[Full markdown report content...]
-```
+- **Is re-injected on every turn** (or per `goalInjectionFrequency` setting)
+- **Updates dynamically** — call `session.goalInjector?.markSubGoalDone(subGoal)` to move sub-goals to the completed section
 
 ---
 
@@ -153,9 +113,9 @@ goalInjectionFrequency: 'always'
 
 // Every N turns (good for very long sessions to save tokens)
 goalInjectionFrequency: 'every_N_turns'
-// Configure N: session.config.goalInjectionN = 3
+goalInjectionN: 3   // re-inject every 3 iterations (default: 3)
 
-// Only after compression events (minimum injection)
+// Only after compression events (minimum injection — least reliable)
 goalInjectionFrequency: 'on_compression'
 ```
 
@@ -170,45 +130,21 @@ goalInjectionFrequency: 'on_compression'
 goalInjectionPosition: 'system_prompt'
 // → Goal appears at the end of the system prompt
 
-// Inject as pre-turn synthetic message
+// Inject as pre-turn synthetic message (highest visibility)
 goalInjectionPosition: 'pre_turn'
-// → Goal appears as a system message just before each user message
+// → Goal appears as a system message just before each provider call
 // → More visible to the model but costs slightly more tokens
 ```
 
 ---
 
-## Accessing Goal Data
+## Manual Goal Setting — `session.setGoal()`
 
-Inspect the current goal state:
-
-```typescript
-const context = session.getContext();
-const goal = context.metadata['goal'] as {
-  statement: string;
-  decomposition: string[];     // sub-goals
-  successCriteria: string[];
-  completedSubGoals: string[];
-} | undefined;
-
-if (goal) {
-  const remaining = goal.decomposition.filter(
-    sg => !goal.completedSubGoals.includes(sg)
-  );
-  console.log(`Goal progress: ${goal.completedSubGoals.length}/${goal.decomposition.length} sub-goals done`);
-  console.log('Remaining:', remaining);
-}
-```
-
----
-
-## Manual Goal Setting
-
-Skip the mini-planning step and set the goal directly:
+Skip the mini-planning step and set the goal structure directly:
 
 ```typescript
 // For when you know the structure upfront
-await session.setGoal({
+session.setGoal({
   statement: 'Audit the authentication module and produce a security report',
   decomposition: [
     'Read all files in src/auth/',
@@ -229,6 +165,48 @@ const report = await session.run(
 );
 ```
 
+`setGoal()` stores the goal in `context.metadata['goal']` immediately and skips the auto-planning LLM call on `run()`.
+
+---
+
+## Accessing Goal Data
+
+Inspect the current goal state at any time:
+
+```typescript
+const context = session.getContext();
+const goal = context.metadata['goal'] as {
+  statement: string;
+  decomposition: string[];
+  successCriteria: string[];
+  completedSubGoals: string[];
+} | undefined;
+
+if (goal) {
+  const remaining = goal.decomposition.filter(
+    sg => !goal.completedSubGoals.includes(sg)
+  );
+  console.log(`Goal progress: ${goal.completedSubGoals.length}/${goal.decomposition.length} sub-goals done`);
+  console.log('Remaining:', remaining);
+}
+```
+
+---
+
+## Marking Sub-Goals Complete
+
+Mark sub-goals as done so they appear in the "completed" section of the injection block:
+
+```typescript
+// After verifying a sub-goal is complete:
+session.goalInjector?.markSubGoalDone('Search for Q4 2025 US EV market sales data');
+
+// Or retrieve the goal from context and update via setGoal()
+const ctx = session.getContext();
+const goal = ctx.metadata['goal'] as { completedSubGoals: string[] } | undefined;
+console.log('Completed:', goal?.completedSubGoals);
+```
+
 ---
 
 ## Tips & Tricks
@@ -238,3 +216,5 @@ const report = await session.run(
 > **Tip:** The mini-planning step costs tokens (one extra LLM call). For simple queries, skip `enableGoalPlanning` and only enable it for multi-step research or workflow tasks.
 
 > **Tip:** Set `goalInjectionPosition: 'pre_turn'` for agents that need maximum goal adherence — the goal is literally the last thing the model reads before deciding its next action.
+
+> **Tip:** Combine with `continuationPlanning` for maximum orchestration power: the plan provides the step-by-step structure, and the goal keeps the overarching objective in focus.

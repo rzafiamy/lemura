@@ -63,16 +63,17 @@ As conversations grow, lemura automatically reduces context size using a composa
 
 ```typescript
 compressionStrategies: [
-  new SummaryInjectionStrategy({ priority: 1 }),     // always runs first
-  new SandwichCompressionStrategy(adapter, {          // runs at 80% usage
+  new SummaryInjectionStrategy({ priority: 1 }),     // always runs first — re-injects compression summary
+  new SandwichCompressionStrategy(adapter, {          // runs at 80% usage — summarizes the middle
     priority: 2,
     preserveFirst: 2,    // keep initial context
     preserveLast: 4,     // keep recent context
-    triggerThreshold: 0.8,
+    triggerThreshold: 0.80,
   }),
-  new MaxTokensCompressionStrategy(adapter, {         // emergency fallback
+  new HistoryCompressionStrategy(adapter, {           // emergency fallback — summarizes oldest N turns
     priority: 3,
-    threshold: 0.95,
+    windowSize: 6,
+    triggerAtPercent: 0.92,
   }),
 ]
 ```

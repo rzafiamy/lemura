@@ -115,8 +115,19 @@ export interface SessionConfig {
     enableGoalPlanning?: boolean;
     goalInjectionFrequency?: 'always' | 'every_N_turns' | 'on_compression';
     goalInjectionPosition?: 'system_prompt' | 'pre_turn';
-    /** Skill budget */
+    /** Skill budget — max tokens the skill injection block may consume */
     skillTokenBudget?: number;
+    /**
+     * Maximum tokens the provider may generate per completion call.
+     * Defaults to 2 000 when not set. This is separate from `maxTokens`
+     * which controls the total context window size.
+     */
+    maxCompletionTokens?: number;
+    /**
+     * When `goalInjectionFrequency` is `'every_N_turns'`, re-inject the goal
+     * every N ReAct iterations. Default: 3.
+     */
+    goalInjectionN?: number;
     /** Callback for each turn in the session */
     onTurn?: (turn: any) => void;
 

@@ -31,8 +31,8 @@ import { evaluateToolFirewall } from '../tools/ToolFirewall.js';
 import { StepCounter } from './execution/StepCounter.js';
 import { FinalResponseFormatter } from './execution/FinalResponseFormatter.js';
 import { ToolResponseProcessor } from './execution/ToolResponseProcessor.js';
-import { GoalInjector } from './execution/GoalInjector.js';
-import { ContinuationPlanner, ContinuationPlan } from './execution/ContinuationPlanner.js';
+import { Goal, GoalInjector } from './execution/GoalInjector.js';
+import { ContinuationPlanner, ContinuationPlan, ContinuationStep } from './execution/ContinuationPlanner.js';
 import { MCPClientRegistry } from '../mcp/MCPClientRegistry.js';
 
 /**
@@ -40,17 +40,21 @@ import { MCPClientRegistry } from '../mcp/MCPClientRegistry.js';
  *
  * `SessionManager` owns the full ReAct loop lifecycle:
  * - Context window management and compression
- * - Skill injection
+ * - Skill injection (with optional token budget)
  * - Tool firewall + schema validation + timeout enforcement
  * - Parallel tool execution (opt-in via `parallelToolCalls`)
  * - maxSteps guard → forced graceful conclusion
- * - Tool response compression (via `toolResponseProcessor`)
- * - Goal injection (via `enableGoalPlanning`)
+ * - Tool response compression (via `ToolResponseProcessor`)
+ * - Goal injection + mini-planning step (via `enableGoalPlanning`)
+ * - Continuation planning with dependency tracking (via `enableContinuationPlanning`)
  * - Streaming output (`stream()`)
+ * - Session lifecycle: `reset()`, `close()`
  *
  * @example
+ * ```typescript
  * const session = new SessionManager({ adapter, model: 'gpt-4o', maxTokens: 16_000 });
  * const answer = await session.run('What is the capital of France?');
+ * ```
  */
 export class SessionManager {
     private contextManager: ContextManager;
@@ -71,7 +75,7 @@ export class SessionManager {
 
     // MCP
     private mcpRegistry: MCPClientRegistry | null = null;
-    /** Resolves when all MCP servers are connected; used by run() and stream() */
+    /** Resolves when all MCP servers are connected; awaited by run() and stream() */
     private mcpReady: Promise<void> | null = null;
 
     // Tool execution budget tracking
@@ -93,9 +97,12 @@ export class SessionManager {
         // maxSteps guard (default 20)
         this.stepCounter = new StepCounter(config.maxSteps ?? 20);
 
-        // Tool response processor
-        this.toolResponseProcessor = (config.toolResponseProcessor as unknown as ToolResponseProcessor) ??
-            new ToolResponseProcessor();
+        // Tool response processor — accept custom instance or build from config
+        this.toolResponseProcessor = (config.toolResponseProcessor instanceof ToolResponseProcessor
+            ? config.toolResponseProcessor
+            : config.toolResponseProcessor
+                ? config.toolResponseProcessor as unknown as ToolResponseProcessor
+                : new ToolResponseProcessor()) as ToolResponseProcessor;
 
         for (const strategy of config.compressionStrategies || []) {
             this.contextManager.registerStrategy(strategy);
@@ -129,10 +136,6 @@ export class SessionManager {
             metadata: {}
         };
 
-        // Goal injector (wired when enableGoalPlanning is true)
-        // The goal is initialised on the first run() call once we know the user message.
-        this.goalInjector = null;
-
         // MCP server setup (non-blocking — tools are registered before first run())
         if (config.mcpServers && config.mcpServers.length > 0) {
             this.mcpRegistry = new MCPClientRegistry(this.logger);
@@ -151,6 +154,10 @@ export class SessionManager {
             }
         });
     }
+
+    // -----------------------------------------------------------------------
+    // Trace helper
+    // -----------------------------------------------------------------------
 
     private emitTrace(
         type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error',
@@ -173,25 +180,99 @@ export class SessionManager {
         }
     }
 
-    /**
-     * Returns a shallow copy of the current context window.
-     */
+    // -----------------------------------------------------------------------
+    // Public accessors
+    // -----------------------------------------------------------------------
+
+    /** Returns a shallow copy of the current context window. */
     getContext(): ContextWindow {
         return { ...this.context };
     }
 
-    /**
-     * Returns the current conversation history.
-     */
+    /** Returns the current conversation history. */
     getHistory() {
         return [...this.context.turns];
     }
 
-    /**
-     * Returns the `MediaBridge` for direct ASR / TTS / Vision / Image-gen calls.
-     */
+    /** Returns the `MediaBridge` for direct ASR / TTS / Vision / Image-gen calls. */
     getMedia() {
         return this.media;
+    }
+
+    // -----------------------------------------------------------------------
+    // Continuation planning API
+    // -----------------------------------------------------------------------
+
+    /**
+     * Sets an explicit multi-step continuation plan that will be tracked and
+     * injected as a status block before each ReAct iteration.
+     *
+     * Dependency tracking, condition evaluation, `outputKey` storage, and
+     * `inputMapping` resolution are all handled automatically by the planner.
+     *
+     * @param steps    - The ordered list of continuation steps.
+     * @param strategy - Execution strategy ('sequential' | 'parallel' | 'conditional'). Default: 'sequential'.
+     *
+     * @example
+     * ```typescript
+     * await session.setPlan([
+     *   { stepId: 'fetch', toolName: 'fetch_data', description: 'Get data', dependsOn: [], outputKey: 'rawData' },
+     *   { stepId: 'analyze', toolName: 'analyze', description: 'Analyze', dependsOn: ['fetch'], inputMapping: { data: 'rawData' } },
+     * ]);
+     * const result = await session.run('Run the data pipeline.');
+     * ```
+     */
+    setPlan(
+        steps: ContinuationStep[],
+        strategy: ContinuationPlan['strategy'] = 'sequential'
+    ): void {
+        this.continuationPlanner = new ContinuationPlanner({
+            steps,
+            currentStepIndex: 0,
+            strategy
+        });
+        // Store plan in metadata so it survives context compression
+        this.context.metadata['continuationPlan'] = this.continuationPlanner.getPlan();
+        this.logger.debug(`[ContinuationPlanner] Plan set with ${steps.length} steps (strategy: ${strategy})`);
+        this.emitTrace('planning', 'plan_set', { stepCount: steps.length, strategy });
+    }
+
+    // -----------------------------------------------------------------------
+    // Goal planning API
+    // -----------------------------------------------------------------------
+
+    /**
+     * Manually sets the agent's goal, bypassing the automatic mini-planning LLM call.
+     *
+     * Use this when you already know the goal structure upfront.
+     *
+     * @example
+     * ```typescript
+     * await session.setGoal({
+     *   statement: 'Audit the authentication module',
+     *   decomposition: ['Read src/auth/', 'Identify SQL injection risks', 'Write report'],
+     *   successCriteria: ['Report covers all audit areas', 'Each finding has a severity rating'],
+     * });
+     * const result = await session.run('Begin the security audit.');
+     * ```
+     */
+    setGoal(goal: Omit<Goal, 'id' | 'injectionFrequency' | 'injectionPosition'>): void {
+        this.goalInjector = new GoalInjector({
+            id: 'manual',
+            statement: goal.statement,
+            decomposition: goal.decomposition ?? [],
+            successCriteria: goal.successCriteria ?? [],
+            injectionFrequency: this.config.goalInjectionFrequency ?? 'always',
+            injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt',
+            completedSubGoals: goal.completedSubGoals ?? [],
+        });
+        // Store in context metadata so it persists across compression
+        this.context.metadata['goal'] = this.goalInjector.getGoal();
+        this.logger.debug('[GoalInjector] Goal set manually');
+        this.emitTrace('planning', 'goal_set_manual', {
+            statement: goal.statement,
+            subGoals: goal.decomposition?.length ?? 0
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -203,7 +284,9 @@ export class SessionManager {
      * Called from the constructor as a fire-and-start async task; `run()` and
      * `stream()` await `this.mcpReady` before executing.
      */
-    private async _initMCP(mcpServers: NonNullable<import('../types/agent.js').SessionConfig['mcpServers']>): Promise<void> {
+    private async _initMCP(
+        mcpServers: NonNullable<import('../types/agent.js').SessionConfig['mcpServers']>
+    ): Promise<void> {
         if (!this.mcpRegistry) return;
 
         this.emitTrace('system', 'mcp_init_start', { serverCount: mcpServers.length });
@@ -240,38 +323,87 @@ export class SessionManager {
     }
 
     // -----------------------------------------------------------------------
+    // Goal mini-planning step (one extra LLM call, gated by enableGoalPlanning)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Runs a dedicated planning prompt against the LLM to decompose the user's
+     * message into sub-goals and success criteria. Called once at the start of
+     * the first `run()` when `enableGoalPlanning` is true and no goal has been
+     * manually set via `setGoal()`.
+     */
+    private async _runMiniPlanningStep(userMessage: string): Promise<void> {
+        const planningPrompt = `Given this goal: "${userMessage}"
+
+1. List the sub-goals needed to achieve this (max 5, be specific)
+2. List success criteria — what does "done" look like? (max 3, binary, measurable)
+
+Respond ONLY with valid JSON (no markdown, no explanations):
+{ "subGoals": string[], "successCriteria": string[] }`;
+
+        try {
+            const response = await this.adapter.complete({
+                model: this.config.model,
+                messages: [{ role: 'user', content: planningPrompt }],
+                maxTokens: this.config.maxCompletionTokens ?? 2_000,
+            });
+
+            // Parse JSON from the response (tolerate code fences)
+            const raw = response.content.replace(/```json|```/g, '').trim();
+            const parsed = JSON.parse(raw) as { subGoals?: string[]; successCriteria?: string[] };
+
+            if (this.goalInjector && Array.isArray(parsed.subGoals)) {
+                this.goalInjector.updateDecomposition(
+                    parsed.subGoals,
+                    Array.isArray(parsed.successCriteria) ? parsed.successCriteria : undefined
+                );
+                this.context.metadata['goal'] = this.goalInjector.getGoal();
+                this.emitTrace('planning', 'mini_plan_done', {
+                    subGoals: parsed.subGoals,
+                    successCriteria: parsed.successCriteria
+                });
+                this.logger.debug(`[GoalInjector] Mini-plan: ${parsed.subGoals.length} sub-goals`);
+            }
+        } catch (err: unknown) {
+            // Non-fatal: continue without decomposition
+            this.logger.warn(`[GoalInjector] Mini-planning step failed: ${(err as Error).message ?? String(err)}`);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
 
     /** Builds the system prompt, injecting skills and goal if configured. */
-    private buildSystemPrompt(userMessage?: string): string {
+    private buildSystemPrompt(userMessage?: string, iteration: number = 0): string {
         let prompt = this.context.systemPrompt || '';
 
-        // Inject goal (enableGoalPlanning)
-        if (this.config.enableGoalPlanning && userMessage) {
-            if (!this.goalInjector) {
-                this.goalInjector = new GoalInjector({
-                    id: 'main',
-                    statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
-                    decomposition: [],
-                    successCriteria: ['The user request is fully answered'],
-                    injectionFrequency: this.config.goalInjectionFrequency ?? 'always',
-                    injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt'
-                });
-                this.logger.debug('Goal injector initialised');
-                const goal = this.goalInjector.getGoal();
-                this.emitTrace('planning', 'goal_init', {
-                    statement: goal.statement,
-                    criteria: goal.successCriteria
-                });
-            }
-            if (this.config.goalInjectionPosition !== 'pre_turn') {
+        // Inject goal into system prompt (when position === 'system_prompt')
+        if (this.goalInjector && this.config.goalInjectionPosition !== 'pre_turn') {
+            const shouldInject = this.goalInjector.shouldInjectThisTurn(
+                iteration,
+                false,
+                this.config.goalInjectionN ?? 3
+            );
+            if (shouldInject) {
                 prompt = this.goalInjector.injectInto(prompt);
-                this.emitTrace('planning', 'goal_injected', { position: this.config.goalInjectionPosition || 'system_prompt' });
+                this.emitTrace('planning', 'goal_injected', {
+                    position: 'system_prompt',
+                    iteration
+                });
             }
         }
 
-        const injectedSkills = this.skillInjector.buildInjectionBlock('system_prompt');
+        // Inject continuation plan status block
+        if (this.continuationPlanner && this.config.enableContinuationPlanning) {
+            const planStatus = this.continuationPlanner.getPlanStatusString();
+            prompt += `\n\n${planStatus}`;
+        }
+
+        const injectedSkills = this.skillInjector.buildInjectionBlock(
+            'system_prompt',
+            this.config.skillTokenBudget
+        );
         if (injectedSkills) {
             prompt += '\n\n' + injectedSkills;
         }
@@ -279,8 +411,8 @@ export class SessionManager {
         return prompt.trim();
     }
 
-    /** Builds the messages array for the provider from the current context */
-    private buildMessages(systemPrompt: string): NormalizedMessage[] {
+    /** Builds the messages array for the provider from the current context. */
+    private buildMessages(systemPrompt: string, iteration: number = 0): NormalizedMessage[] {
         const messages: NormalizedMessage[] = this.context.turns.map(t => ({
             role: t.role,
             content: t.content,
@@ -292,17 +424,24 @@ export class SessionManager {
             messages.unshift({ role: 'system', content: systemPrompt });
         }
 
-        // pre_turn goal injection
+        // pre_turn goal injection — injects as a system message just before the last user turn
         if (this.goalInjector && this.config.goalInjectionPosition === 'pre_turn') {
-            const goalBlock = this.goalInjector.injectInto('');
-            messages.push({ role: 'system', content: goalBlock });
-            this.emitTrace('planning', 'goal_injected', { position: 'pre_turn' });
+            const shouldInject = this.goalInjector.shouldInjectThisTurn(
+                iteration,
+                false,
+                this.config.goalInjectionN ?? 3
+            );
+            if (shouldInject) {
+                const goalBlock = this.goalInjector.getFormattedBlock();
+                messages.push({ role: 'system', content: goalBlock });
+                this.emitTrace('planning', 'goal_injected', { position: 'pre_turn', iteration });
+            }
         }
 
         return messages;
     }
 
-    /** Checks the tool execution budget and throws descriptively if exceeded */
+    /** Checks the tool execution budget and throws descriptively if exceeded. */
     private checkExecutionBudget(toolName: string): void {
         const budget = this.config.toolExecutionBudget;
         if (!budget) return;
@@ -322,10 +461,15 @@ export class SessionManager {
                     `Tool execution budget exceeded: '${toolName}' has reached its per-tool limit of ${budget.maxCallsPerTool[toolName]}`
                 );
                 this.logger.warn(err.message);
-                this.emitTrace('budget', 'tool_limit_exceeded', { toolName, limit: budget.maxCallsPerTool[toolName], totalTokens: this.totalTokens });
+                this.emitTrace('budget', 'tool_limit_exceeded', {
+                    toolName,
+                    limit: budget.maxCallsPerTool[toolName],
+                    totalTokens: this.totalTokens
+                });
                 throw err;
             }
         }
+
         this.emitTrace('budget', 'check_passed', {
             toolName,
             totalCalls: this.totalToolCallCount,
@@ -334,7 +478,7 @@ export class SessionManager {
         });
     }
 
-    /** Records a tool call in budget counters */
+    /** Records a tool call in budget counters. */
     private recordToolCall(toolName: string): void {
         this.totalToolCallCount++;
         this.perToolCallCount.set(toolName, (this.perToolCallCount.get(toolName) ?? 0) + 1);
@@ -384,6 +528,7 @@ export class SessionManager {
 
     /**
      * Executes a single parsed tool call and returns the serialised result string.
+     * Also handles continuation plan tracking (step status + output storage).
      */
     private async executeSingleToolCall(
         tc: { id: string; name: string; arguments: string }
@@ -391,7 +536,20 @@ export class SessionManager {
         // Budget check
         this.checkExecutionBudget(tc.name);
 
-        const args = JSON.parse(tc.arguments);
+        let args: Record<string, unknown> = JSON.parse(tc.arguments);
+
+        // Continuation planner: resolve inputMapping if a matching step exists
+        if (this.continuationPlanner) {
+            const plan = this.continuationPlanner.getPlan();
+            const matchingStep = plan.steps.find(
+                s => s.toolName === tc.name && s.status === 'pending'
+            );
+            if (matchingStep) {
+                this.continuationPlanner.markStepRunning(matchingStep.stepId);
+                args = this.continuationPlanner.resolveInputs(matchingStep, args);
+            }
+        }
+
         const executeContext: Record<string, unknown> = {
             sessionId: 'default',
             turnIndex: this.context.turns.length,
@@ -404,10 +562,30 @@ export class SessionManager {
             executeContext['ragAdapter'] = this.config.ragAdapter;
         }
 
-        this.logger.debug(`Executing tool: ${tc.name}`, { args: tc.arguments });
-        this.emitTrace('tool_call', tc.name, { id: tc.id }, tc.arguments, null, 'running');
+        this.logger.debug(`Executing tool: ${tc.name}`, { args: JSON.stringify(args) });
+        this.emitTrace('tool_call', tc.name, { id: tc.id }, JSON.stringify(args), null, 'running');
 
-        const result = await this.toolRegistry.execute(tc.name, args, executeContext as never);
+        let result: unknown;
+        let executionError: Error | null = null;
+
+        try {
+            result = await this.toolRegistry.execute(tc.name, args, executeContext as never);
+        } catch (err: unknown) {
+            executionError = err as Error;
+            // Mark continuation step as failed
+            if (this.continuationPlanner) {
+                const plan = this.continuationPlanner.getPlan();
+                const runningStep = plan.steps.find(
+                    s => s.toolName === tc.name && s.status === 'running'
+                );
+                if (runningStep) {
+                    this.continuationPlanner.markStepFailed(runningStep.stepId);
+                    this.context.metadata['continuationPlan'] = this.continuationPlanner.getPlan();
+                }
+            }
+            throw executionError;
+        }
+
         this.recordToolCall(tc.name);
         this.logger.debug(`Tool ${tc.name} returned successfully`);
 
@@ -429,7 +607,7 @@ export class SessionManager {
             content = content.slice(0, this.config.maxTokensPerTool * 4) + '... [TRUNCATED DUE TO TOOL TOKEN LIMIT]';
         }
 
-        // Tool response compression (if configured)
+        // Tool response compression
         const toolDef: IToolDefinition = this.toolRegistry.get(tc.name) || {
             name: tc.name,
             description: '',
@@ -442,11 +620,36 @@ export class SessionManager {
             this.emitTrace('compression', tc.name, { originalSize: evaluation.sizeClass }, null, content);
         }
 
-        if (this.config.enableContinuationPlanning && evaluation.suggestedAction === 'continue') {
-            this.emitTrace('planning', 'continuation_detected', { toolName: tc.name, action: evaluation.suggestedAction });
+        // Continuation planner: mark step done, store output
+        if (this.continuationPlanner) {
+            const plan = this.continuationPlanner.getPlan();
+            const runningStep = plan.steps.find(
+                s => s.toolName === tc.name && s.status === 'running'
+            );
+            if (runningStep) {
+                this.continuationPlanner.markStepDone(runningStep.stepId, content);
+                // Store in context.metadata['toolOutputs']
+                if (runningStep.outputKey) {
+                    const outputs = (this.context.metadata['toolOutputs'] as Record<string, string>) ?? {};
+                    outputs[runningStep.outputKey] = content;
+                    this.context.metadata['toolOutputs'] = outputs;
+                }
+                this.context.metadata['continuationPlan'] = this.continuationPlanner.getPlan();
+                this.emitTrace('planning', 'step_done', {
+                    stepId: runningStep.stepId,
+                    outputKey: runningStep.outputKey
+                });
+            }
         }
 
-        this.emitTrace('tool_result', tc.name, { id: tc.id }, tc.arguments, content, 'done');
+        if (evaluation.suggestedAction === 'continue' && this.config.enableContinuationPlanning) {
+            this.emitTrace('planning', 'continuation_detected', {
+                toolName: tc.name,
+                action: evaluation.suggestedAction
+            });
+        }
+
+        this.emitTrace('tool_result', tc.name, { id: tc.id }, JSON.stringify(args), content, 'done');
         return content;
     }
 
@@ -456,6 +659,9 @@ export class SessionManager {
 
     /**
      * Runs the full ReAct loop for a user message and returns the final assistant response.
+     *
+     * When `enableGoalPlanning` is true and no goal has been manually set, a mini-planning
+     * LLM call is made before the first iteration to decompose the task into sub-goals.
      *
      * @param userMessage - The user's message (string or multimodal content blocks)
      * @returns The assistant's final response string
@@ -471,8 +677,26 @@ export class SessionManager {
             message: userMessageStr
         });
 
-        // Goal injector is set up on first run with the actual user message
-        const systemPrompt = this.buildSystemPrompt(userMessageStr);
+        // Goal injector: initialise on first run if enableGoalPlanning and no manual goal set
+        if (this.config.enableGoalPlanning && !this.goalInjector) {
+            this.goalInjector = new GoalInjector({
+                id: 'auto',
+                statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
+                decomposition: [],
+                successCriteria: ['The user request is fully answered'],
+                injectionFrequency: this.config.goalInjectionFrequency ?? 'always',
+                injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt',
+            });
+            this.context.metadata['goal'] = this.goalInjector.getGoal();
+            this.logger.debug('Goal injector initialised (auto)');
+            this.emitTrace('planning', 'goal_init', {
+                statement: this.goalInjector.getGoal().statement,
+                criteria: this.goalInjector.getGoal().successCriteria
+            });
+
+            // Run mini-planning step to decompose the goal
+            await this._runMiniPlanningStep(userMessageStr);
+        }
 
         // 1. Prepare context with user's message
         this.context.turns.push({
@@ -488,6 +712,7 @@ export class SessionManager {
         const maxIts = this.config.maxIterations || 10;
         this.iterations = 0;
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
+        const maxCompletionTokens = this.config.maxCompletionTokens ?? 2_000;
 
         // The ReAct Loop
         while (this.iterations < maxIts) {
@@ -498,7 +723,8 @@ export class SessionManager {
             this.context = await this.contextManager.prepare(this.context);
 
             // Build messages
-            let messages = this.buildMessages(systemPrompt);
+            const systemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
+            let messages = this.buildMessages(systemPrompt, this.iterations);
 
             // If maxSteps reached — force conclusion
             if (this.stepCounter.isMaxReached()) {
@@ -507,7 +733,10 @@ export class SessionManager {
                     role: 'system',
                     content: this.stepCounter.getForcedConclusionPrompt() + '\n\n' + FinalResponseFormatter.getRequiredStructure()
                 });
-                this.emitTrace('planning', 'max_steps_reached', { maxSteps: this.config.maxSteps, currentSteps: this.stepCounter.count });
+                this.emitTrace('planning', 'max_steps_reached', {
+                    maxSteps: this.config.maxSteps,
+                    currentSteps: this.stepCounter.count
+                });
             }
 
             // 3. Call provider
@@ -524,7 +753,7 @@ export class SessionManager {
                     model: this.config.model,
                     messages: messages,
                     tools: this.stepCounter.isMaxReached() ? [] : this.toolRegistry.getAll(),
-                    maxTokens: 1000
+                    maxTokens: maxCompletionTokens
                 });
             } catch (err: unknown) {
                 const e = err as { problem?: string; hints?: string[]; message?: string };
@@ -594,7 +823,7 @@ export class SessionManager {
                         toolResults.push(...batchResults);
                     }
                 } else {
-                    // --- Sequential execution (original behaviour) ---
+                    // --- Sequential execution ---
                     for (const tc of response.toolCalls) {
                         const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
                         if (!ok) continue;
@@ -642,6 +871,9 @@ export class SessionManager {
                     if (this.config.onTurn) this.config.onTurn(toolTurn);
                 }
 
+                // Advance goal turn counter
+                if (this.goalInjector) this.goalInjector.incrementTurn();
+
                 continue;
             }
 
@@ -654,7 +886,7 @@ export class SessionManager {
                 const finalTurn: Turn = {
                     role: 'assistant',
                     content: response.content,
-                    tokenCount: response.usage.completionTokens,
+                    tokenCount: response.usage?.completionTokens ?? this.adapter.estimateTokens(response.content),
                     turnIndex: this.context.turns.length,
                     compressed: false
                 };
@@ -686,9 +918,11 @@ export class SessionManager {
      * @returns An `AsyncIterable<string>` of delta tokens from the final response
      *
      * @example
+     * ```typescript
      * for await (const token of session.stream('Tell me a story')) {
      *   process.stdout.write(token);
      * }
+     * ```
      */
     async *stream(userMessage: string | ContentBlock[]): AsyncIterable<string> {
         // Ensure MCP servers are connected before first use
@@ -700,7 +934,19 @@ export class SessionManager {
             message: userMessageStr
         });
 
-        const systemPrompt = this.buildSystemPrompt(userMessageStr);
+        // Goal injector: initialise on first run if enableGoalPlanning and no manual goal set
+        if (this.config.enableGoalPlanning && !this.goalInjector) {
+            this.goalInjector = new GoalInjector({
+                id: 'auto',
+                statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
+                decomposition: [],
+                successCriteria: ['The user request is fully answered'],
+                injectionFrequency: this.config.goalInjectionFrequency ?? 'always',
+                injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt',
+            });
+            this.context.metadata['goal'] = this.goalInjector.getGoal();
+            await this._runMiniPlanningStep(userMessageStr);
+        }
 
         this.context.turns.push({
             role: 'user',
@@ -715,13 +961,15 @@ export class SessionManager {
         const maxIts = this.config.maxIterations || 10;
         this.iterations = 0;
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
+        const maxCompletionTokens = this.config.maxCompletionTokens ?? 2_000;
 
         while (this.iterations < maxIts) {
             this.iterations++;
             this.logger.debug(`[stream] ReAct Iteration ${this.iterations}/${maxIts}`);
 
             this.context = await this.contextManager.prepare(this.context);
-            const messages = this.buildMessages(systemPrompt);
+            const systemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
+            const messages = this.buildMessages(systemPrompt, this.iterations);
 
             if (this.stepCounter.isMaxReached()) {
                 messages.push({
@@ -737,7 +985,7 @@ export class SessionManager {
                     model: this.config.model,
                     messages,
                     tools: this.stepCounter.isMaxReached() ? [] : this.toolRegistry.getAll(),
-                    maxTokens: 1000
+                    maxTokens: maxCompletionTokens
                 });
             } catch (err: unknown) {
                 this.logger.fatal(`Provider call failed: ${(err as Error).message}`);
@@ -787,12 +1035,14 @@ export class SessionManager {
                     if (this.config.onTurn) this.config.onTurn(toolTurn);
                 }
 
+                if (this.goalInjector) this.goalInjector.incrementTurn();
                 continue;
             }
 
             // Final response — stream it
             this.context = await this.contextManager.prepare(this.context);
-            const finalMessages = this.buildMessages(systemPrompt);
+            const finalSystemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
+            const finalMessages = this.buildMessages(finalSystemPrompt, this.iterations);
 
             let accumulated = '';
             let finalFinishReason: CompletionChunk['finishReason'] = undefined;
@@ -801,7 +1051,7 @@ export class SessionManager {
             for await (const chunk of this.adapter.stream({
                 model: this.config.model,
                 messages: finalMessages,
-                maxTokens: 1000,
+                maxTokens: maxCompletionTokens,
                 stream: true
             })) {
                 if (chunk.delta) {
@@ -845,7 +1095,8 @@ export class SessionManager {
 
     /**
      * Resets the session: clears conversation history, resets iteration counters,
-     * and resets tool execution budgets. The adapter, config, and tools are retained.
+     * tool execution budget tallies, and goal/plan state.
+     * The adapter, config, compression strategies, and tools are retained.
      */
     reset(): void {
         this.context = {
@@ -858,25 +1109,29 @@ export class SessionManager {
         };
         this.iterations = 0;
         this.totalToolCallCount = 0;
+        this.totalTokens = 0;
         this.perToolCallCount.clear();
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
         this.goalInjector = null;
+        this.continuationPlanner = null;
         this.logger.debug('Session reset');
     }
 
     /**
      * Closes the session and disconnects all MCP servers.
      *
-     * Call this when you are done with the session and have registered MCP servers,
-     * to ensure child processes are terminated and HTTP connections are released.
+     * Call this when you are done with the session to ensure child processes are
+     * terminated and HTTP connections are released.
      *
      * @example
+     * ```typescript
      * const session = new SessionManager({ ..., mcpServers: [...] });
      * try {
      *   await session.run('Hello');
      * } finally {
      *   await session.close();
      * }
+     * ```
      */
     async close(): Promise<void> {
         if (this.mcpRegistry) {

@@ -56,6 +56,7 @@ const session = new SessionManager({
   compressionStrategies: [
     new SummaryInjectionStrategy({ priority: 1 }),
     new SandwichCompressionStrategy(adapter, { priority: 2, triggerThreshold: 0.80, preserveFirst: 3, preserveLast: 4 }),
+    new HistoryCompressionStrategy(adapter, { priority: 3, windowSize: 6, triggerAtPercent: 0.92 }),
   ],
 
   // Skill budget — 10% of 16K

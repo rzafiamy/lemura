@@ -12,12 +12,13 @@ import { SandwichCompressionStrategy, SummaryInjectionStrategy } from 'lemura/co
 
 const config = {
   compressionStrategies: [
-    new SummaryInjectionStrategy({ priority: 1 }), // Track what we've forgotten
-    new SandwichCompressionStrategy({ // Summarize the middle
-      preserveFirst: 2, 
+    new SummaryInjectionStrategy({ priority: 1 }), // Re-inject compression summary before every call
+    new SandwichCompressionStrategy(adapter, {      // Summarize the middle of the conversation
+      preserveFirst: 2,
       preserveLast: 5,
-      priority: 2 
-    })
+      priority: 2,
+      triggerThreshold: 0.80,
+    }),
   ]
 };
 ```

@@ -3,25 +3,36 @@ import { ContextWindow, IContextStrategy, IProviderAdapter, Turn } from '../type
 export interface SandwichCompressionConfig {
     preserveFirst: number;
     preserveLast: number;
-    triggerThreshold: number; // e.g. 0.8
+    /** Fire when context reaches this fraction of maxTokens (e.g. 0.80 = 80%). Default: 0.80 */
+    triggerThreshold?: number;
+    /** Max tokens for the generated summary turn. Default: unlimited */
+    summaryMaxTokens?: number;
+    /** Strategy execution priority — lower number runs first. Default: 20 */
+    priority?: number;
 }
 
 /**
  * Sandwich compression preserves the beginning and end of the conversation,
  * replacing the middle with a generated summary.
+ *
+ * Pair with `SummaryInjectionStrategy` to ensure the compression summary is
+ * visible to the model on every subsequent call.
  */
 export class SandwichCompressionStrategy implements IContextStrategy {
     readonly name = 'sandwich_compression';
-    readonly priority = 20;
+    readonly priority: number;
 
     constructor(
         private adapter: IProviderAdapter,
         private config: SandwichCompressionConfig
-    ) { }
+    ) {
+        this.priority = config.priority ?? 20;
+    }
 
     shouldApply(ctx: ContextWindow): boolean {
+        const threshold = this.config.triggerThreshold ?? 0.80;
         return (
-            ctx.tokenCount >= ctx.maxTokens * this.config.triggerThreshold &&
+            ctx.tokenCount >= ctx.maxTokens * threshold &&
             ctx.turns.length > this.config.preserveFirst + this.config.preserveLast
         );
     }
@@ -40,7 +51,8 @@ export class SandwichCompressionStrategy implements IContextStrategy {
             messages: [{
                 role: 'user',
                 content: `Summarize the following conversation history briefly:\n${middleText}`
-            }]
+            }],
+            ...(this.config.summaryMaxTokens ? { maxTokens: this.config.summaryMaxTokens } : {})
         });
 
         const summaryStr = summaryResponse.content;

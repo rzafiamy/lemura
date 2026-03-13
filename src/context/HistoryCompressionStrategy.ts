@@ -21,21 +21,30 @@ export class ScratchpadStrategy implements IContextStrategy {
 }
 
 export interface HistoryCompressionConfig {
+    /** Number of oldest turns to summarize in each compression pass */
     windowSize: number;
-    triggerAtPercent: number; // e.g. 0.8
+    /** Fire when context reaches this fraction of maxTokens (e.g. 0.8 = 80%) */
+    triggerAtPercent: number;
+    /** Strategy execution priority — lower number runs first. Default: 30 */
+    priority?: number;
 }
 
 /**
- * Operates on a rolling window of the oldest N turns and summarizes them.
+ * Summarizes the oldest N uncompressed turns using a rolling-window approach.
+ *
+ * Pair with `SummaryInjectionStrategy` (priority < this one) to ensure the
+ * accumulated summary is re-injected before each provider call.
  */
 export class HistoryCompressionStrategy implements IContextStrategy {
     readonly name = 'history_compression';
-    readonly priority = 30;
+    readonly priority: number;
 
     constructor(
         private adapter: IProviderAdapter,
         private config: HistoryCompressionConfig
-    ) { }
+    ) {
+        this.priority = config.priority ?? 30;
+    }
 
     shouldApply(ctx: ContextWindow): boolean {
         const triggerTokens = ctx.maxTokens * this.config.triggerAtPercent;

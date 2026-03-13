@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-13
+
+### Added
+
+- **`SummaryInjectionStrategy`** (`src/context/SummaryInjectionStrategy.ts`): New built-in context strategy that re-injects `ctx.compressionSummary` as a system turn before every provider call — ensuring the model always sees what was compressed. Idempotent (updates in-place on repeated runs). Configurable `priority` and `label`. Pair with `SandwichCompressionStrategy` or `HistoryCompressionStrategy`.
+
+- **`SessionManager.setPlan(steps, strategy?)`**: New public method to register a `ContinuationPlan` before a `run()` call. The plan is stored in `context.metadata['continuationPlan']`, injected as a status block before every ReAct iteration, and survives context compression. Supports `'sequential'`, `'parallel'`, and `'conditional'` strategies.
+
+- **`SessionManager.setGoal(goal)`**: New public method to manually set the agent's goal (statement, sub-goal decomposition, success criteria) without the automatic mini-planning LLM call. Goal is stored in `context.metadata['goal']`.
+
+- **Goal mini-planning step**: When `enableGoalPlanning: true` and no manual goal is set, `run()` and `stream()` automatically make one LLM call before the first iteration to decompose the user's message into sub-goals and success criteria (stored in `GoalInjector` and `context.metadata['goal']`).
+
+- **`GoalInjector.getFormattedBlock()`**: New method returning just the `[CURRENT GOAL]` block string — used internally for `pre_turn` injection (fixes empty-message bug when `goalInjectionPosition: 'pre_turn'`).
+
+- **`GoalInjector.shouldInjectThisTurn(turnIndex, compressionOccurred, injectionN)`**: Properly implements all three `goalInjectionFrequency` values (`'always'`, `'every_N_turns'`, `'on_compression'`).
+
+- **`GoalInjector.updateDecomposition(subGoals, successCriteria?)`**: Update sub-goals and criteria after mini-planning.
+
+- **`GoalInjector.markSubGoalDone(subGoal)`**: Mark a sub-goal as completed so it appears in the `[/CURRENT GOAL]` completed section on subsequent injections.
+
+- **`SessionConfig.maxCompletionTokens`**: New config field controlling the `maxTokens` argument passed to each `complete()` call (default: `2_000`). Previously this was hardcoded to `1000`.
+
+- **`SessionConfig.goalInjectionN`**: New config field for `goalInjectionFrequency: 'every_N_turns'` — controls how often the goal is re-injected (default: `3`).
+
+- **`ContinuationStep.condition`**: New optional field `{ step: string; outputContains: string }` that gates a step's execution on a substring check of a prior step's output. When not met, the step (and all dependants) are automatically marked `skipped`.
+
+- **`ContinuationPlanner` state management methods**: `markStepRunning()`, `markStepDone(stepId, output?)`, `markStepFailed()`, `markStepSkipped()`, `getReadySteps()`, `isComplete()`, `getOutput(key)`, `resolveInputs(step, baseArgs)`. Dependency failure propagation is now BFS-based and fully correct.
+
+- **`outputKey` / `inputMapping` wiring**: When a `ContinuationStep` defines `outputKey`, its tool result is stored in `context.metadata['toolOutputs'][outputKey]`. When the next step defines `inputMapping`, lemura resolves the prior step's output and passes it to the tool's arguments automatically.
+
+- **`ToolResponseProcessor` config** (`ToolResponseProcessorConfig`): Constructor now accepts `smallMaxTokens` (default: 200), `mediumMaxTokens` (default: 800), `largeMaxTokens` (default: 2000), and `budgetPercent`. The `compress()` method now uses smarter extractive (head+tail) and line-level strategies instead of a fixed 1000-char truncation. Soft-error detection now catches more patterns (`"error"`, `connection refused`, `timed out`, etc.).
+
+- **`SkillInjector` token budget**: `buildInjectionBlock(position, tokenBudget?)` now accepts an optional `tokenBudget`. Skills are added in priority order until the budget would be exceeded; compact tier variants (`nano` → `micro` → `standard`) are preferred when budgeting.
+
+- **`SandwichCompressionStrategy` config improvements**: `triggerThreshold` now has a default (0.80). New optional `summaryMaxTokens` field passed to the summarization LLM call. New optional `priority` field (default: 20) — priority is now configurable at construction time instead of hardcoded.
+
+- **`HistoryCompressionStrategy` priority config**: `priority` is now configurable at construction time (default: 30).
+
+- **`lemura/mcp` sub-export**: `MCPClient` and `MCPClientRegistry` are now available via `import ... from 'lemura/mcp'` in addition to the main entry point.
+
+### Changed
+
+- `SessionManager` — `buildSystemPrompt()` now accepts `iteration` parameter and correctly gates goal injection via `shouldInjectThisTurn()`. The continuation plan status block is now injected into the system prompt when `enableContinuationPlanning` is true.
+- `SessionManager` — `buildMessages()` now correctly injects the goal for `pre_turn` position using `goalInjector.getFormattedBlock()` instead of `injectInto('')` (fixes empty system message bug).
+- `SessionManager.reset()` — now also resets `totalTokens` and `continuationPlanner`.
+- `GoalInjector.injectInto()` — now always appends the goal block to the given prompt string regardless of position (position logic moved to `shouldInjectThisTurn()` + caller). Sub-goals in/completed sections included.
+- `SessionConfig.toolResponseProcessor` — type updated to accept `IToolResponseProcessor` (interface) for custom implementations; built-in `ToolResponseProcessor` class is used by default.
+
+### Fixed
+
+- **`goalInjectionPosition: 'pre_turn'` bug**: Previously `goalInjector.injectInto('')` returned an empty string for `pre_turn` position, causing an empty system message to be pushed into the message list. Fixed by using `getFormattedBlock()` directly.
+- **Hardcoded `maxTokens: 1000`** in `complete()` calls inside `run()` and `stream()`: Now uses `config.maxCompletionTokens ?? 2_000`.
+- **`goalInjectionFrequency: 'every_N_turns'` / `'on_compression'`** were defined as enum values but never checked. Now fully implemented via `GoalInjector.shouldInjectThisTurn()`.
+- **`SandwichCompressionStrategy.triggerThreshold`** was required but now correctly defaults to `0.80` if omitted.
+- **`ToolResponseProcessor.compress()`** no longer truncates error responses (preserves them verbatim so the model can react to errors).
+
+### Documentation
+
+- All references to non-existent `MaxTokensCompressionStrategy` replaced with `HistoryCompressionStrategy`.
+- All `SandwichCompressionStrategy` constructor calls in docs now include the required `adapter` first argument.
+- `continuation-planning.md` fully rewritten to match `setPlan()` API, `condition` field, `outputKey`/`inputMapping` behavior.
+- `goal-planning.md` rewritten to accurately describe `setGoal()`, the mini-planning step, `goalInjectionFrequency` options, `goalInjectionN`, and sub-goal tracking.
+- `advanced-execution.md` quick-reference updated with `HistoryCompressionStrategy` and correct strategy signatures.
+- `session-config.md` production preset examples fixed (correct adapter args, removed non-existent classes).
+
 ## [1.2.0] - 2026-03-12
 
 ### Added

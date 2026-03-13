@@ -47,7 +47,8 @@ const session = new SessionManager({
   tools: [lookupOrderTool, createTicketTool],
   ragAdapter: pineconeAdapter,
   compressionStrategies: [
-    new SandwichCompressionStrategy({ preserveFirst: 3, preserveLast: 6 }),
+    new SummaryInjectionStrategy({ priority: 1 }),
+    new SandwichCompressionStrategy(adapter, { preserveFirst: 3, preserveLast: 6, priority: 2 }),
   ],
   logger: myProductionLogger,
 });
@@ -68,10 +69,10 @@ const session = new SessionManager({
   continuationStrategy: 'sequential',
   compressionStrategies: [
     new SummaryInjectionStrategy({ priority: 1 }),
-    new SandwichCompressionStrategy({ priority: 2, preserveFirst: 2, preserveLast: 4 }),
-    new MaxTokensCompressionStrategy({ priority: 3, threshold: 0.92 }),
+    new SandwichCompressionStrategy(adapter, { priority: 2, preserveFirst: 2, preserveLast: 4, triggerThreshold: 0.80 }),
+    new HistoryCompressionStrategy(adapter, { priority: 3, windowSize: 6, triggerAtPercent: 0.92 }),
   ],
-  toolResponseTokenBudget: 30_000,
+  toolResponseProcessor: new ToolResponseProcessor({ budgetPercent: 0.15 }),
 });
 ```
 
