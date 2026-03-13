@@ -719,7 +719,12 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             this.iterations++;
             this.logger.debug(`ReAct Iteration ${this.iterations}/${maxIts}`);
 
-            // 2. Prepare context window (compress if needed)
+            // 2. Sync token count then prepare context window (compress if needed).
+            // Turns are pushed without updating context.tokenCount, so recalculate
+            // here to give compression strategies an accurate picture.
+            this.context.tokenCount =
+                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
+                this.adapter.estimateTokens(this.context.systemPrompt || '');
             this.context = await this.contextManager.prepare(this.context);
 
             // Build messages
@@ -967,6 +972,9 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             this.iterations++;
             this.logger.debug(`[stream] ReAct Iteration ${this.iterations}/${maxIts}`);
 
+            this.context.tokenCount =
+                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
+                this.adapter.estimateTokens(this.context.systemPrompt || '');
             this.context = await this.contextManager.prepare(this.context);
             const systemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
             const messages = this.buildMessages(systemPrompt, this.iterations);
@@ -1040,6 +1048,9 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             }
 
             // Final response — stream it
+            this.context.tokenCount =
+                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
+                this.adapter.estimateTokens(this.context.systemPrompt || '');
             this.context = await this.contextManager.prepare(this.context);
             const finalSystemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
             const finalMessages = this.buildMessages(finalSystemPrompt, this.iterations);

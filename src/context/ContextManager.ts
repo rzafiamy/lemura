@@ -28,6 +28,16 @@ export class ContextManager {
      */
     async prepare(context: ContextWindow, safetyMargin = 0.95): Promise<ContextWindow> {
         let currentCtx = { ...context, turns: [...context.turns] };
+
+        // Recalculate token count from actual turns + system prompt so compression
+        // strategies always see an up-to-date figure regardless of how callers
+        // track incremental additions (they often forget to update tokenCount).
+        const systemTokens = currentCtx.systemPrompt
+            ? Math.ceil(currentCtx.systemPrompt.length / 4)
+            : 0;
+        currentCtx.tokenCount =
+            currentCtx.turns.reduce((sum, t) => sum + t.tokenCount, 0) + systemTokens;
+
         const targetTokenCount = currentCtx.maxTokens * safetyMargin;
 
         for (const strategy of this.strategies) {
