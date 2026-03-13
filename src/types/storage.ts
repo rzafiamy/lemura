@@ -38,6 +38,42 @@ export interface IStorageAdapter {
 }
 
 /**
+ * Interface for Scratchpad storage adapters.
+ * Implementations handle persistence of the scratchpad per session.
+ */
+export interface IScratchpadAdapter {
+    /**
+     * Reads the scratchpad for a given session.
+     *
+     * @param sessionId - The session identifier
+     * @returns The scratchpad content or undefined if none exists
+     */
+    read(sessionId: string): Promise<string | undefined>;
+
+    /**
+     * Writes the scratchpad for a given session.
+     *
+     * @param sessionId - The session identifier
+     * @param content - The scratchpad content to store
+     */
+    write(sessionId: string, content: string): Promise<void>;
+
+    /**
+     * Clears the scratchpad for a given session.
+     *
+     * @param sessionId - The session identifier
+     */
+    clear(sessionId: string): Promise<void>;
+
+    /**
+     * Optional health check for remote storage adapters.
+     *
+     * @returns true if storage is accessible, false otherwise
+     */
+    healthCheck?(): Promise<boolean>;
+}
+
+/**
  * Represents an item stored in Short Term Memory.
  */
 export interface STMItem {

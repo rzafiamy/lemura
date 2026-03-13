@@ -55,6 +55,21 @@ const docs = [
     ],
   },
   {
+    id: 'memory',
+    title: 'Memory',
+    subtitle: 'Scratchpad, STM, and persistence',
+    file: 'memory.md',
+    icon: 'hard-drive',
+    color: 'teal',
+    category: 'Fundamentals',
+    children: [
+      { id: 'memory/scratchpad', title: 'Scratchpad', file: 'context-management/scratchpad.md', icon: 'edit-3' },
+      { id: 'memory/short-term-memory', title: 'Short Term Memory (STM)', file: 'memory/short-term-memory.md', icon: 'archive' },
+      { id: 'memory/memory-tools', title: 'Memory Tools', file: 'memory/memory-tools.md', icon: 'tool' },
+      { id: 'memory/context-memory-settings', title: 'Context & Memory Settings', file: 'session-config/context-memory-settings.md', icon: 'layers' },
+    ],
+  },
+  {
     id: 'tools-and-skills',
     title: 'Tools & Skills',
     subtitle: 'Give your agent superpowers and a distinct personality',
@@ -295,6 +310,8 @@ const icons = {
   'minimize-2': `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" x2="3" y1="14" y2="21"/><line x1="21" x2="14" y1="3" y2="10"/></svg>`,
   pause: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
   plug: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8H6a2 2 0 0 0-2 2v3a6 6 0 0 0 6 6h0a6 6 0 0 0 6-6v-3a2 2 0 0 0-2-2z"/></svg>`,
+  'hard-drive': `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>`,
+  archive: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>`,
 }
 
 const colorMap = {

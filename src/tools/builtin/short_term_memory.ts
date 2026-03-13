@@ -139,6 +139,10 @@ export const readScratchpadTool: IToolDefinition = {
     description: 'Reads the content from the current agent scratchpad.',
     parameters: { type: 'object', properties: {} },
     async execute(_params: any, context: ToolContext) {
+        if (context.scratchpadAdapter) {
+            const stored = await context.scratchpadAdapter.read(context.sessionId);
+            return stored ?? '';
+        }
         return context.scratchpad ?? '';
     }
 };
@@ -158,11 +162,19 @@ export const writeScratchpadTool: IToolDefinition = {
         required: ['content']
     },
     async execute(params: any, context: ToolContext) {
-        let newScratchpad = context.scratchpad ?? '';
+        let current = context.scratchpad ?? '';
+        if (context.scratchpadAdapter) {
+            const stored = await context.scratchpadAdapter.read(context.sessionId);
+            if (stored !== undefined) current = stored;
+        }
+        let newScratchpad = current;
         if (params.append) {
             newScratchpad += (newScratchpad ? '\n' : '') + params.content;
         } else {
             newScratchpad = params.content;
+        }
+        if (context.scratchpadAdapter) {
+            await context.scratchpadAdapter.write(context.sessionId, newScratchpad);
         }
         return { status: 'success', newScratchpad, note: 'Scratchpad updated' };
     }
@@ -175,7 +187,10 @@ export const removeScratchpadTool: IToolDefinition = {
     name: 'remove_scratchpad',
     description: 'Clears or removes content from the scratchpad.',
     parameters: { type: 'object', properties: {} },
-    async execute(_params: any, _context: ToolContext) {
+    async execute(_params: any, context: ToolContext) {
+        if (context.scratchpadAdapter) {
+            await context.scratchpadAdapter.clear(context.sessionId);
+        }
         return { status: 'success', newScratchpad: '', note: 'Scratchpad cleared' };
     }
 };

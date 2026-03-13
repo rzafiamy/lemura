@@ -66,6 +66,9 @@ export class SessionManager {
     private iterations: number = 0;
     private logger: ILogger;
     private media: MediaBridge;
+    private sessionId: string;
+    private scratchpadLoaded: boolean = false;
+    private pendingScratchpadClear: boolean = false;
 
     // Advanced execution state
     private stepCounter: StepCounter;
@@ -87,6 +90,7 @@ export class SessionManager {
         this.config = config;
         this.adapter = config.adapter;
         this.logger = config.logger || new DefaultLogger();
+        this.sessionId = config.sessionId || 'default';
         this.contextManager = new ContextManager();
         this.toolRegistry = new ToolRegistry(config.tools || [], {
             defaultTimeoutMs: config.toolRegistryTimeoutMs ?? 30_000
@@ -178,6 +182,21 @@ export class SessionManager {
                 startedAt: Date.now()
             });
         }
+    }
+
+    private async ensureScratchpadLoaded(): Promise<void> {
+        if (!this.config.scratchpadAdapter) return;
+        if (this.pendingScratchpadClear) {
+            await this.config.scratchpadAdapter.clear(this.sessionId);
+            this.context.scratchpad = '';
+            this.pendingScratchpadClear = false;
+            this.scratchpadLoaded = true;
+            return;
+        }
+        if (this.scratchpadLoaded) return;
+        const stored = await this.config.scratchpadAdapter.read(this.sessionId);
+        this.context.scratchpad = stored ?? '';
+        this.scratchpadLoaded = true;
     }
 
     // -----------------------------------------------------------------------
@@ -673,12 +692,13 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         }
 
         const executeContext: Record<string, unknown> = {
-            sessionId: 'default',
+            sessionId: this.sessionId,
             turnIndex: this.context.turns.length,
             logger: this.logger,
             adapter: this.adapter,
             stmRegistry: this.config.stmRegistry,
-            scratchpad: this.context.scratchpad
+            scratchpad: this.context.scratchpad,
+            scratchpadAdapter: this.config.scratchpadAdapter
         };
         if (this.config.ragAdapter) {
             executeContext['ragAdapter'] = this.config.ragAdapter;
@@ -810,6 +830,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     async run(userMessage: string | ContentBlock[]): Promise<string> {
         // Ensure MCP servers are connected before first use
         if (this.mcpReady) await this.mcpReady;
+        await this.ensureScratchpadLoaded();
 
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
         this.logger.info(`Starting new session run`, {
@@ -1072,6 +1093,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     async *stream(userMessage: string | ContentBlock[]): AsyncIterable<string> {
         // Ensure MCP servers are connected before first use
         if (this.mcpReady) await this.mcpReady;
+        await this.ensureScratchpadLoaded();
 
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
         this.logger.info(`Starting streaming session run`, {
@@ -1265,6 +1287,8 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
         this.goalInjector = null;
         this.continuationPlanner = null;
+        this.scratchpadLoaded = false;
+        this.pendingScratchpadClear = !!this.config.scratchpadAdapter;
         this.logger.debug('Session reset');
     }
 

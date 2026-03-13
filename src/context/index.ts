@@ -4,3 +4,4 @@ export * from './HistoryCompressionStrategy.js';
 export * from './SummaryInjectionStrategy.js';
 export * from './ShortTermMemoryRegistry.js';
 export * from './InMemoryStorageAdapter.js';
+export * from './InMemoryScratchpadAdapter.js';

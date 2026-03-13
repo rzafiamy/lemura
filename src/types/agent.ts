@@ -6,6 +6,7 @@ import { ISkill } from './skills.js';
 import { IRAGAdapter } from './rag.js';
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 import { MCPServerConfig } from './mcp.js';
+import { IScratchpadAdapter } from './storage.js';
 
 export interface ToolResponseEvaluation {
     relevanceScore: number;
@@ -78,6 +79,8 @@ export interface SessionConfig {
     adapter: IProviderAdapter;
     /** Model string */
     model: string;
+    /** Optional session id for scratchpad and tracing */
+    sessionId?: string;
     /** Max context tokens */
     maxTokens: number;
     /** Max ReAct cycles */
@@ -134,6 +137,8 @@ export interface SessionConfig {
     // STM and Limits
     /** Short Term Memory Registry */
     stmRegistry?: ShortTermMemoryRegistry;
+    /** Scratchpad storage adapter */
+    scratchpadAdapter?: IScratchpadAdapter;
     /** Max tokens allowed for a single tool response */
     maxTokensPerTool?: number;
 

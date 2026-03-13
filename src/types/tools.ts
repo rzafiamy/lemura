@@ -1,6 +1,7 @@
 import { IRAGAdapter } from './rag.js';
 import { ILogger } from './logger.js';
 import { IProviderAdapter } from './adapters.js';
+import { IScratchpadAdapter } from './storage.js';
 
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 
@@ -12,6 +13,7 @@ export interface ToolContext {
     ragAdapter?: IRAGAdapter;
     stmRegistry?: ShortTermMemoryRegistry;
     scratchpad?: string;
+    scratchpadAdapter?: IScratchpadAdapter;
 }
 
 export interface IToolDefinition {

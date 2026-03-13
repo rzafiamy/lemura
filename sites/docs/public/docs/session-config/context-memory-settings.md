@@ -44,3 +44,16 @@ The maximum space for retrieved RAG snippets. Older or lower-relevance snippets 
 
 ### `toolResponseProcessor: IToolResponseProcessor`
 Supply a custom class to handle how large tool outputs (like full web page HTML) are summarized or truncated before entering the context.
+
+---
+
+## STM & Scratchpad
+
+### `stmRegistry: ShortTermMemoryRegistry`
+Enables Short Term Memory and registers the built-in STM and scratchpad tools. STM stores large assets outside the prompt and returns references like `[STM:uuid]`.
+
+### `scratchpadAdapter: IScratchpadAdapter`
+Optional persistence for the scratchpad. Useful if you want working memory to survive process restarts or be stored in a database.
+
+### `sessionId: string`
+Optional session identifier used by scratchpad storage adapters.

@@ -8,7 +8,7 @@ The scratchpad is lemura's implementation of **working memory** — an internal 
 
 The scratchpad is a special `string` field in `ContextWindow` that:
 - **Is never sent to the provider directly** — it's for internal reasoning only
-- **Is cleared at the start of each new user turn** — ensuring fresh reasoning slate
+- **Is not part of turn history** — clear it explicitly when you want a fresh slate
 - **Is never compressed** — compression strategies skip it entirely
 - **Is written after every provider reasoning step** — capturing intermediate thoughts
 
@@ -47,7 +47,7 @@ User: "Research and compare the top 3 EV batteries in 2025"
      ↓
 [Final answer generated]
      ↓
-[Scratchpad cleared for next user turn]
+[Scratchpad stays available until you clear it]
 ```
 
 ---
@@ -187,4 +187,4 @@ session.on('tool:execute', ({ toolName }) => {
 
 > **Tip:** Keep tool results short and action-oriented. The agent uses tool results to update its scratchpad reasoning — huge walls of text make it harder for the model to reason clearly. Prefer structured summaries over raw dumps.
 
-> **Tip:** When a session seems to "forget" something between turns, it's likely the scratchpad was cleared. If the agent needs to remember a computation from a previous turn, encode it explicitly in the tool's return value so it becomes part of the conversation `turns` — not just the ephemeral scratchpad.
+> **Tip:** When a session seems to "forget" something between turns, check whether the scratchpad was cleared (manually or via `reset()`). If the agent needs to remember a computation from a previous turn, encode it explicitly in the tool's return value so it becomes part of the conversation `turns` — not just the scratchpad.
