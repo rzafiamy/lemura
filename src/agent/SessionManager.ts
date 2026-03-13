@@ -194,6 +194,45 @@ export class SessionManager {
         return [...this.context.turns];
     }
 
+    /**
+     * Populates the session context with a pre-existing conversation history.
+     *
+     * Turns are assigned sequential `turnIndex` values starting from 0 and the
+     * context `tokenCount` is recalculated automatically. Call this immediately
+     * after construction and before the first `run()` / `stream()`.
+     *
+     * @param history - Raw history entries (role + content, optional toolCalls/toolResults).
+     *
+     * @example
+     * ```typescript
+     * const session = new SessionManager(config);
+     * session.loadHistory(savedMessages);
+     * const answer = await session.run('Continue where we left off.');
+     * ```
+     */
+    loadHistory(history: Array<{
+        role: Turn['role'];
+        content: Turn['content'];
+        toolCalls?: Turn['toolCalls'];
+        toolResults?: Turn['toolResults'];
+    }>): void {
+        this.context.turns = history.map((m, i) => ({
+            role: m.role,
+            content: m.content ?? '',
+            tokenCount: this.adapter.estimateTokens(
+                typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+            ),
+            turnIndex: i,
+            compressed: false,
+            ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
+            ...(m.toolResults ? { toolResults: m.toolResults } : {}),
+        }));
+        this.context.tokenCount =
+            this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
+            this.adapter.estimateTokens(this.context.systemPrompt || '');
+        this.emitTrace('system', 'history_loaded', { turnCount: this.context.turns.length });
+    }
+
     /** Returns the `MediaBridge` for direct ASR / TTS / Vision / Image-gen calls. */
     getMedia() {
         return this.media;
