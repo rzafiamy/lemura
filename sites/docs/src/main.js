@@ -360,6 +360,7 @@ function renderHome() {
           <a href="#/docs/getting-started" class="hover:text-slate-900 transition-colors">Documentation</a>
           <a href="#/docs/adapters" class="hover:text-slate-900 transition-colors">Adapters</a>
           <a href="#/docs/mcp" class="hover:text-slate-900 transition-colors">MCP</a>
+          <a href="/api/index.html" class="hover:text-slate-900 transition-colors">API Reference</a>
           <button class="flex items-center gap-2 hover:text-slate-900 transition-colors" onclick="openSearch()">
             ${icons.search} Search
             <span class="search-kbd">⌘K</span>
@@ -560,6 +561,9 @@ async function renderDocs(docId) {
           
           <div class="pt-6 border-t border-black/5">
             <div class="sidebar-category">Resources</div>
+            <a href="/api/index.html" class="sidebar-child-link gap-2">
+              ${getIconHtml('book-open', 14)} API Reference ${icons.externalLink}
+            </a>
             <a href="https://github.com/rzafiamy/lemura" target="_blank" class="sidebar-child-link gap-2">
               ${getIconHtml('github', 14)} GitHub ${icons.externalLink}
             </a>
