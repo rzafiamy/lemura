@@ -6,7 +6,12 @@ describe('ContextManager Unit Tests', () => {
     it('should return context unmodified if no strategies apply', async () => {
         const manager = new ContextManager();
         const ctx: ContextWindow = {
-            systemPrompt: '', scratchpad: '', turns: [], tokenCount: 100, maxTokens: 1000, metadata: {}
+            systemPrompt: '',
+            scratchpad: '',
+            turns: [{ role: 'user', content: 'hi', tokenCount: 100, turnIndex: 0, compressed: false }],
+            tokenCount: 100,
+            maxTokens: 1000,
+            metadata: {}
         };
 
         const result = await manager.prepare(ctx);
@@ -16,7 +21,14 @@ describe('ContextManager Unit Tests', () => {
     it('should throw LemuraContextOverflowError if compression fails to reduce tokens enough', async () => {
         const manager = new ContextManager();
         const ctx: ContextWindow = {
-            systemPrompt: '', scratchpad: '', turns: [], tokenCount: 2000, maxTokens: 1000, metadata: {}
+            systemPrompt: '',
+            scratchpad: '',
+            turns: [
+                { role: 'user', content: 'hello', tokenCount: 1500, turnIndex: 0, compressed: false }
+            ],
+            tokenCount: 1500,
+            maxTokens: 1000,
+            metadata: {}
         };
 
         await expect(manager.prepare(ctx, 0.95)).rejects.toThrow(LemuraContextOverflowError);
