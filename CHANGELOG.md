@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-14
+
+### Added
+
+- **Fixed/Dynamic skill loading strategy** (`ISkill.strategy`): Skills now support a `strategy` field — `'fixed'` (default, always active, fully backward-compatible) or `'dynamic'` (opt-in pool, activated by name or tag). This replaces the previous always-on behavior with a market-style loading model.
+
+- **`SkillInjector.enableSkill(name)`** / **`disableSkill(name)`**: Enable or disable a named dynamic skill at runtime.
+
+- **`SkillInjector.enableByTags(tags)`** / **`disableByTags(tags)`**: Bulk-enable or disable dynamic skills whose `tags` array intersects with the given set.
+
+- **`SkillInjector.getActiveSkills()`**: Returns the currently active skill set (fixed skills always included; dynamic skills only when enabled).
+
+- **`SkillInjector.getRequiredTools()`**: Returns the union of `requiredTools` from all currently active skills. Host applications can use this to expose only the tools that the active skill set actually depends on.
+
+- **`SkillInjector.getAll()`**: Returns all registered skills regardless of activation state.
+
+- **`ISkill.requiredTools?: string[]`**: New optional field declaring which tool names a skill depends on. Surfaced via `getRequiredTools()`.
+
+- **`ISkill.tags?: string[]`**: New optional field for arbitrary tag-based dynamic skill selection.
+
+- **`ISkill.enabled?: boolean`**: Activation flag for `dynamic` skills. Defaults to `false` — dynamic skills must be explicitly enabled. Ignored on fixed skills.
+
+- **`ISkill.content?: string`**: New optional field accepting the full skill body (without frontmatter). Used as the `standard`-level content when `standard` is absent, enabling the `{ content: markdownBody }` shorthand pattern documented in the skills guide.
+
+- **`ISkill.tier` is now optional**: Was incorrectly required. The injection block header shows `'standard'` when `tier` is absent — no breaking change to runtime behavior.
+
+- **`SessionConfig.activeDynamicSkills?: string[]`**: Names of dynamic skills to enable automatically at session construction.
+
+- **`SessionConfig.activeDynamicTags?: string[]`**: Tags used to bulk-enable dynamic skills at session construction.
+
+- **`TraceEvent.type: 'skill'`**: New trace type emitted during `session_init` — one `skill_load` event per active skill, carrying `name`, `version`, `strategy`, `inject`, `priority`, `tags`, and `requiredTools`.
+
+- **`SessionManager.skills` accessor**: Public getter returning the session's `SkillInjector` instance for runtime skill management (`session.skills.enableSkill(...)`, `session.skills.getRequiredTools()`, etc.).
+
+- **`SessionManager.tools` accessor**: Public getter returning the session's `ToolRegistry` instance for runtime tool management (`session.tools.register(...)`, `session.tools.unregister(...)`, `session.tools.getAll()`). Previously the registry was private — docs referenced this API but it wasn't accessible.
+
+- **`session_init` trace now includes skill summary**: The `system / session_init` trace metadata includes `skills: { total, active, fixed, dynamic }` counts.
+
+### Changed
+
+- `SkillInjector.getSkillsForInjection()` — now returns only **active** skills (fixed + enabled dynamic). Previously returned all registered skills regardless of state.
+- `SkillInjector._pickContent()` — fallback chain now includes `content` field between `standard` and `description`, fixing the silent empty-injection bug when skills were passed via `{ content: '...' }`.
+- `SkillInjector.buildInjectionBlock()` — tier label in block header now falls back to `'standard'` instead of rendering as `undefined`.
+
+### Fixed
+
+- **Silent empty skill injection**: When a skill was constructed with only a `content` field (the `{ content: markdownBody }` shorthand), none of `nano/micro/standard` were set, causing `_pickContent` to return `description` (often empty) — the model never saw the skill content. Fixed by adding `content` to the resolution chain.
+- **`ISkill.tier` rendering as `undefined`**: The injection block header `[Skill: name (Tier: undefined)]` is now `[Skill: name (Tier: standard)]` when `tier` is absent.
+
+### Documentation
+
+- `skills-system.md` — Fully rewritten to document `strategy: 'fixed' | 'dynamic'`, the `requiredTools` / `tags` fields, `session.skills` accessor, and the `activeDynamicSkills` / `activeDynamicTags` config options. Removed references to non-existent `autodiscoverTools` from Option 3.
+- `tool-discovery.md` — Removed references to `session.on('tools:discovered')` (EventEmitter API, not implemented). Documented correct tool registration patterns and the `"lemura"` package.json convention.
+- `tools-and-skills.md` — Fixed `session.tools.list()` → `session.tools.getAll()` (correct `ToolRegistry` method name).
+- `session-config/tools-media-settings.md` — Removed non-existent `autodiscoverTools` config option; replaced with the correct manual import pattern. Fixed `session.tools.list()` → `session.tools.getAll()`.
+- `getting-started/error-handling.md` — `session.tools.register()` example now works via the new `session.tools` public accessor.
+
+> **Note:** Several other doc files (`observability.md`, `sandwich-compression.md`, `max-steps.md`, etc.) reference a `session.on(event, handler)` EventEmitter API that was planned but never implemented. These files are flagged for a follow-up documentation pass to replace with the `onTrace` callback pattern.
+
 ## [1.3.0] - 2026-03-13
 
 ### Added

@@ -8,7 +8,8 @@ import {
     IToolDefinition,
     CompletionChunk,
     NormalizedMessage,
-    ToolCall
+    ToolCall,
+    TraceEvent
 } from '../types/index.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
@@ -96,6 +97,17 @@ export class SessionManager {
             defaultTimeoutMs: config.toolRegistryTimeoutMs ?? 30_000
         });
         this.skillInjector = new SkillInjector(config.skills || []);
+
+        // Apply dynamic skill selectors from config
+        if (config.activeDynamicSkills && config.activeDynamicSkills.length > 0) {
+            for (const name of config.activeDynamicSkills) {
+                this.skillInjector.enableSkill(name);
+            }
+        }
+        if (config.activeDynamicTags && config.activeDynamicTags.length > 0) {
+            this.skillInjector.enableByTags(config.activeDynamicTags);
+        }
+
         this.media = new MediaBridge(this.adapter);
 
         // maxSteps guard (default 20)
@@ -147,6 +159,7 @@ export class SessionManager {
         }
 
         // Emit initial system trace
+        const activeSkills = this.skillInjector.getActiveSkills();
         this.emitTrace('system', 'session_init', {
             config: {
                 model: this.config.model,
@@ -155,8 +168,27 @@ export class SessionManager {
                 parallelToolCalls: this.config.parallelToolCalls,
                 enableGoalPlanning: this.config.enableGoalPlanning,
                 enableContinuationPlanning: this.config.enableContinuationPlanning
+            },
+            skills: {
+                total: (config.skills || []).length,
+                active: activeSkills.length,
+                fixed: activeSkills.filter(s => s.strategy !== 'dynamic').length,
+                dynamic: activeSkills.filter(s => s.strategy === 'dynamic').length,
             }
         });
+
+        // Emit per-skill load traces
+        for (const skill of activeSkills) {
+            this.emitTrace('skill', 'skill_load', {
+                name: skill.name,
+                version: skill.version,
+                strategy: skill.strategy ?? 'fixed',
+                inject: skill.inject,
+                priority: skill.priority,
+                tags: skill.tags ?? [],
+                requiredTools: skill.requiredTools ?? [],
+            });
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -164,7 +196,7 @@ export class SessionManager {
     // -----------------------------------------------------------------------
 
     private emitTrace(
-        type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error',
+        type: TraceEvent['type'],
         name: string,
         metadata?: Record<string, any>,
         input?: any,
@@ -255,6 +287,47 @@ export class SessionManager {
     /** Returns the `MediaBridge` for direct ASR / TTS / Vision / Image-gen calls. */
     getMedia() {
         return this.media;
+    }
+
+    /**
+     * Returns the `ToolRegistry` for runtime tool management.
+     *
+     * Use this to register or unregister tools after session construction:
+     *
+     * ```typescript
+     * // Add a tool after the user authenticates
+     * session.tools.register(paymentTool);
+     *
+     * // Remove a tool when no longer needed
+     * session.tools.unregister('send_payment');
+     *
+     * // Inspect what's registered
+     * const active = session.tools.getAll();
+     * console.log(active.map(t => t.name));
+     * ```
+     *
+     * @since 1.4.0
+     */
+    get tools(): ToolRegistry {
+        return this.toolRegistry;
+    }
+
+    /**
+     * Returns the `SkillInjector` for runtime skill management.
+     *
+     * Use this to enable or disable dynamic skills after session construction:
+     *
+     * ```typescript
+     * session.skills.enableSkill('code-review');
+     * session.skills.enableByTags(['debugging']);
+     * session.skills.disableSkill('verbose-mode');
+     * const requiredTools = session.skills.getRequiredTools();
+     * ```
+     *
+     * @since 1.4.0
+     */
+    get skills(): SkillInjector {
+        return this.skillInjector;
     }
 
     // -----------------------------------------------------------------------

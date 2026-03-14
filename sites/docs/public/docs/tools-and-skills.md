@@ -146,7 +146,7 @@ session.tools.register(userSpecificDatabaseTool);
 session.tools.unregister('search_web');
 
 // List all currently registered tools
-const allTools = session.tools.list();
+const allTools = session.tools.getAll();
 console.log(allTools.map(t => t.name));
 // → ['get_weather', 'user_specific_database']
 ```

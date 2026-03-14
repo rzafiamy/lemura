@@ -70,7 +70,7 @@ session.tools.register({
 session.tools.unregister('send_payment');
 
 // Inspect what's registered
-const registered = session.tools.list();
+const registered = session.tools.getAll();
 console.log('Active tools:', registered.map(t => t.name));
 ```
 
@@ -140,28 +140,20 @@ When a quota is exceeded, a `LemuraMaxIterationsError` is thrown and the session
 
 ---
 
-### `autodiscoverTools?: boolean` (default: `false`)
+### Distributable Tool Packages
 
-When `true`, lemura scans `node_modules` for packages that declare lemura tools in their `package.json`. Any package with a `"lemura"` key is loaded and its tools and skills are registered automatically.
+Tool packages can declare their exports via the `"lemura"` key in `package.json`. This is a convention for documentation and tooling — consumers import and register the tools manually:
 
 ```typescript
-// In a tool package's package.json:
-{
-  "name": "lemura-tools-web",
-  "lemura": {
-    "tools": ["./dist/tools/search-web.js"],
-    "skills": ["./skills/web-search-expert.md"]
-  }
-}
+import searchWebTool from 'lemura-tools-web/dist/tools/search-web.js';
 
-// In SessionConfig:
 const session = new SessionManager({
   adapter, model: 'gpt-4o', maxTokens: 128_000,
-  autodiscoverTools: true,
+  tools: [searchWebTool],
 });
 ```
 
-> See [Tool Auto-Discovery →](/docs/tools-and-skills/tool-discovery) for how to build distributable tool packages.
+> See [Tool Discovery →](/docs/tools-and-skills/tool-discovery) for how to build and consume distributable tool packages.
 
 ---
 
@@ -334,7 +326,6 @@ Available media tools when enabled:
 
 > **Tip:** Register tools conditionally based on user permissions — don't expose admin tools to regular users. Build a `createSession(user)` factory function that assembles the right tool set per user role.
 
-> **Tip:** Don't enable `autodiscoverTools: true` in production without auditing what packages declare lemura tools. Any `node_modules` package with a `"lemura"` key in its `package.json` will have its tools registered.
 
 > **Tip:** When using both `ragAdapter` and `tools`, be aware that `rag_query` and `rag_ingest` are auto-registered. If you also define tools with those names, the auto-registered ones are skipped and yours win — but this can cause confusion. Use unique names.
 

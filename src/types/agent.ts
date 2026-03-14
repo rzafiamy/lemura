@@ -89,6 +89,24 @@ export interface SessionConfig {
     tools?: IToolDefinition[];
     /** Explicit skills */
     skills?: ISkill[];
+
+    /**
+     * Names of dynamic skills (those with `strategy: 'dynamic'`) to enable
+     * automatically at session construction. Fixed skills are always active
+     * regardless of this list.
+     *
+     * @since 1.4.0
+     */
+    activeDynamicSkills?: string[];
+
+    /**
+     * Tags used to bulk-enable dynamic skills at session construction.
+     * Any dynamic skill whose `tags` array intersects with this list will be
+     * activated automatically.
+     *
+     * @since 1.4.0
+     */
+    activeDynamicTags?: string[];
     /** RAG adapter */
     ragAdapter?: IRAGAdapter;
     /** Context compression strategies */
@@ -179,7 +197,7 @@ export interface SessionConfig {
 /** Rich trace event for observability */
 export interface TraceEvent {
     sessionId?: string;
-    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error';
+    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill';
     name: string;
     input?: any;
     output?: any;

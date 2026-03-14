@@ -1,10 +1,112 @@
-# Tool Auto-Discovery
+# Tool Discovery
 
-lemura's auto-discovery system lets you distribute tools as npm packages. Any package with a `"lemura"` key in its `package.json` can be automatically discovered and registered.
+lemura tools are always registered explicitly — you pass `tools: [...]` in `SessionConfig` or call registration helpers. This page covers the three main patterns: static arrays, conditional registration, and npm-package distribution conventions.
 
 ---
 
-## The Auto-Discovery Protocol
+## Static Tool Array (most common)
+
+Pass all tools at construction time:
+
+```typescript
+import { readFileTool, webSearchTool } from './my-tools.js';
+
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o',
+  maxTokens: 128_000,
+  tools: [readFileTool, webSearchTool],
+});
+```
+
+---
+
+## Conditional Tool Registration
+
+Only register tools based on user permissions, feature flags, or active skills:
+
+```typescript
+async function createAgentSession(user: User) {
+  const tools: IToolDefinition[] = [
+    searchTool,       // always available
+    readFileTool,     // always available
+  ];
+
+  // Premium users get more tools
+  if (user.plan === 'premium') {
+    tools.push(sendEmailTool);
+    tools.push(createCalendarEventTool);
+  }
+
+  // Admins get admin tools
+  if (user.role === 'admin') {
+    tools.push(userManagementTool);
+    tools.push(systemDiagnosticsTool);
+  }
+
+  return new SessionManager({
+    adapter,
+    model: 'gpt-4o',
+    maxTokens: 128_000,
+    tools,
+    systemPrompt: `You are assisting ${user.name} (${user.plan} plan).`,
+  });
+}
+```
+
+---
+
+## Skill-Driven Tool Discovery
+
+When skills declare `requiredTools`, you can build a minimal, context-aware tool set from the active skill set:
+
+```typescript
+const allTools = [readFileTool, listDirTool, webSearchTool, shellTool, dbQueryTool];
+
+const session = new SessionManager({
+  adapter, model, maxTokens,
+  skills: [...],
+  activeDynamicSkills: ['code-review'],
+});
+
+// Build tool array from what active skills need
+const needed = new Set(session.skills.getRequiredTools());
+const tools = allTools.filter(t => needed.has(t.name));
+
+// Create the final session with the filtered tool set
+const agentSession = new SessionManager({ adapter, model, maxTokens, tools, skills });
+```
+
+This pattern enables runtime skill selection to drive which tools are exposed — the agent only sees tools relevant to its current mode.
+
+---
+
+## MCP Servers (Model Context Protocol)
+
+Tools from external MCP servers are registered via `mcpServers`. Discovery is automatic and non-blocking — tools are available by the time `run()` is first called:
+
+```typescript
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o',
+  maxTokens: 128_000,
+  mcpServers: [
+    { name: 'github', transport: 'stdio', command: 'npx', args: ['@modelcontextprotocol/server-github'] },
+    { name: 'db_tools', transport: 'http', url: 'http://localhost:3001' }
+  ],
+});
+
+// session.run() automatically waits for MCP tool discovery before first call
+const result = await session.run('List open pull requests');
+```
+
+See [MCP overview](../mcp/overview.md) for full configuration options.
+
+---
+
+## Distributable Tool Packages (npm convention)
+
+To distribute tools as an npm package that other lemura users can install and integrate, use the `"lemura"` key in `package.json` to declare what your package exports:
 
 ### In your tool package's `package.json`:
 
@@ -46,48 +148,39 @@ export default {
 };
 ```
 
----
+### Consuming the package in your application:
 
-## Enabling Auto-Discovery
+Consumers import the tools manually and pass them to `SessionManager`. The `"lemura"` key in `package.json` is a convention for documentation and tooling — not an auto-loader:
 
 ```typescript
+import searchWebTool from 'lemura-tools-web/dist/tools/search-web.js';
+import scrapePageTool from 'lemura-tools-web/dist/tools/scrape-page.js';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// Load the bundled skill
+const skillContent = readFileSync(
+  new URL('../node_modules/lemura-tools-web/skills/web-search-expert.md', import.meta.url),
+  'utf8'
+);
+
 const session = new SessionManager({
-  adapter,
-  model: 'gpt-4o',
-  maxTokens: 128_000,
-  autodiscoverTools: true,  // default: false — opt-in
+  adapter, model, maxTokens,
+  tools: [searchWebTool, scrapePageTool],
+  skills: [{
+    name: 'web-search-expert',
+    version: '1.0.0',
+    description: 'Web search and research expert',
+    inject: 'system_prompt',
+    priority: 10,
+    content: extractMarkdownBody(skillContent),
+  }],
 });
-
-// Listen for what was found
-session.on('tools:discovered', ({ tools, skills }) => {
-  console.log('Auto-discovered tools:', tools.map(t => t.name));
-  console.log('Auto-discovered skills:', skills.map(s => s.name));
-});
-```
-
----
-
-## How Discovery Works Internally
-
-```
-1. Scan node_modules/*/package.json
-2. Look for packages with a "lemura" key
-3. For each listed tool file:
-   a. Dynamic import() the file
-   b. Validate the default export has { name, description, parameters, execute }
-   c. Register in ToolRegistry
-4. For each listed skill file:
-   a. Read the markdown file
-   b. Parse YAML frontmatter
-   c. Register in SkillInjector
-5. Emit 'tools:discovered' event with the full list
 ```
 
 ---
 
 ## Building a Distributable Tool Package
-
-Step-by-step for publishing your own tool package:
 
 ```
 lemura-tools-myapp/
@@ -122,7 +215,7 @@ lemura-tools-myapp/
     ]
   },
   "peerDependencies": {
-    "lemura": ">=0.1.0"
+    "lemura": ">=1.4.0"
   }
 }
 ```
@@ -143,75 +236,6 @@ lemura-tools-myapp/
 
 ---
 
-## Dynamic Registration at Runtime
-
-Register tools after session creation:
-
-```typescript
-const session = new SessionManager({ adapter, model: 'gpt-4o', maxTokens: 128_000 });
-
-// Add a tool later (e.g., after user authentication)
-session.tools.register({
-  name: 'send_payment',
-  description: 'Process a payment. Only available for authenticated users.',
-  parameters: {
-    type: 'object',
-    properties: {
-      amount: { type: 'number', description: 'Amount in USD' },
-      recipient: { type: 'string', description: 'Recipient account ID' },
-    },
-    required: ['amount', 'recipient'],
-  },
-  execute: async ({ amount, recipient }) => {
-    return await paymentService.transfer(amount, recipient);
-  },
-});
-
-// Remove a tool when no longer needed
-session.tools.unregister('send_payment');
-
-// Check what's registered
-const registered = session.tools.list();
-console.log('Active tools:', registered.map(t => t.name));
-```
-
----
-
-## Conditional Tool Registration
-
-Only register tools based on user permissions or feature flags:
-
-```typescript
-async function createAgentSession(user: User) {
-  const tools: IToolDefinition[] = [
-    searchTool,       // always available
-    readFileTool,     // always available
-  ];
-
-  // Premium users get more tools
-  if (user.plan === 'premium') {
-    tools.push(sendEmailTool);
-    tools.push(createCalendarEventTool);
-  }
-
-  // Admins get admin tools
-  if (user.role === 'admin') {
-    tools.push(userManagementTool);
-    tools.push(systemDiagnosticsTool);
-  }
-
-  return new SessionManager({
-    adapter,
-    model: 'gpt-4o',
-    maxTokens: 128_000,
-    tools,
-    systemPrompt: `You are assisting ${user.name} (${user.plan} plan).`,
-  });
-}
-```
-
----
-
 ## Namespace Conventions
 
 Community tool packages follow this naming pattern to avoid conflicts:
@@ -226,8 +250,8 @@ Community tool packages follow this naming pattern to avoid conflicts:
 
 ## Tips & Tricks
 
-> **Tip:** Auto-discovery uses `import()` which is async. All discovered tools are available by the time the first `session.run()` is called — but the `'tools:discovered'` event fires asynchronously during `SessionManager` construction. Don't rely on it being synchronous.
+> **Tip:** Use `session.skills.getRequiredTools()` with `requiredTools` on skills to build minimal tool sets automatically — expose only what the active skill configuration needs.
 
-> **Tip:** When building a distributable tool package, add a `prepack` script that runs `pnpm build` to ensure `dist/` is always fresh before publishing: `"prepack": "pnpm build"`.
+> **Tip:** When building a distributable tool package, add a `prepack` script that runs your build command to ensure `dist/` is always fresh before publishing: `"prepack": "pnpm build"`.
 
-> **Tip:** Version your tool packages with semver aligned to your lemura peer dependency. If lemura's `IToolDefinition` interface changes in a major version, you need a major version bump in your tool package too.
+> **Tip:** Version your tool packages with semver aligned to your lemura peer dependency. If lemura's `IToolDefinition` interface changes in a major version, bump your tool package too.

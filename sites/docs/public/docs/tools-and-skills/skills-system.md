@@ -1,6 +1,6 @@
 # Skills System
 
-Skills are Markdown files injected into the system prompt. They define *how* your agent thinks, reasons, and presents itself — independently of what it can do (tools).
+Skills are Markdown-formatted instructions injected into the system prompt. They define *how* your agent thinks, reasons, and presents itself — independently of what it can do (tools).
 
 ---
 
@@ -26,6 +26,7 @@ version: 1.0.0
 description: Expert code reviewer focused on security, performance, and correctness
 inject: system_prompt
 priority: 10
+strategy: fixed
 
 nano: |
   You are a strict code reviewer. Always check security issues first.
@@ -41,55 +42,139 @@ You are an expert software engineer specializing in code review.
 **Security-first (P0 — block merge):**
 - SQL injection, XSS, CSRF vulnerabilities
 - Hardcoded secrets, API keys, passwords
-- Unsafe deserialization, path traversal
-- Improper error handling that leaks internal state
-
-**Performance (P1 — fix in this PR or file ticket):**
-- O(n²) or worse algorithms where O(n log n) exists
-- N+1 database queries
-- Missing database indexes for filtered/sorted columns
-- Unnecessary synchronous file I/O or blocking operations
-
-**Maintainability (P2 — optional):**
-- Functions longer than 50 lines (suggest refactor)
-- Missing test coverage for new code paths
-- Naming that doesn't match domain terminology
-
-## Output Format
-
-Always structure your review as:
-
-```
-## Code Review
-
-### 🔴 P0 — Security (must fix before merge)
-* [Issue]: [Location] — [Explanation] — [Fix]
-
-### 🟡 P1 — Performance
-* [Issue]: [Location] — [Explanation]
-
-### 🔵 P2 — Style & Maintainability
-* [Issue]: [Location] — [Suggestion]
-
-### ✅ Summary
-[One paragraph overall assessment]
-```
+...
 ```
 
 ---
 
 ## Frontmatter Fields
 
-| Field | Required | Description |
-|---|---|---|
-| `name` | ✅ | Unique identifier, kebab-case |
-| `version` | ✅ | Semantic version string |
-| `description` | ✅ | One line describing the skill |
-| `inject` | ✅ | `system_prompt`, `pre_turn`, or `post_history` |
-| `priority` | ✅ | Lower number = higher priority |
-| `tier` | ❌ | `nano`, `micro`, `standard`, `extended` |
-| `nano` | ❌ | ≤100 token single-sentence fallback |
-| `micro` | ❌ | ≤300 token abbreviated version |
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `name` | ✅ | — | Unique identifier, kebab-case |
+| `version` | ✅ | — | Semantic version string |
+| `description` | ✅ | — | One line describing the skill |
+| `inject` | ✅ | — | `system_prompt`, `pre_turn`, or `post_history` |
+| `priority` | ✅ | — | Lower number = higher priority |
+| `strategy` | ❌ | `fixed` | `fixed` (always active) or `dynamic` (opt-in) |
+| `tier` | ❌ | `standard` | `nano`, `micro`, `standard`, `extended` |
+| `nano` | ❌ | — | ≤100 token single-sentence fallback |
+| `micro` | ❌ | — | ≤300 token abbreviated version |
+| `requiredTools` | ❌ | — | Tool names this skill depends on (YAML list) |
+| `tags` | ❌ | — | Arbitrary tags for dynamic selection (YAML list) |
+
+---
+
+## Loading Strategies: Fixed vs Dynamic
+
+Skills support two loading strategies that control when they are injected.
+
+### `strategy: fixed` (default)
+
+Always active. Injected on every ReAct iteration. All skills without a `strategy` field default to `fixed` — **fully backward compatible**.
+
+```typescript
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o',
+  maxTokens: 128_000,
+  skills: [
+    {
+      name: 'safety-rules',
+      version: '1.0.0',
+      description: 'Absolute safety constraints',
+      inject: 'system_prompt',
+      priority: 1,
+      strategy: 'fixed',   // always on — same as omitting strategy entirely
+      nano: 'Never generate harmful, illegal, or NSFW content.',
+      standard: 'ABSOLUTE RULES:\n1. Never generate harmful content.\n2. Never claim to be human.',
+    },
+  ],
+});
+```
+
+### `strategy: dynamic`
+
+Part of an opt-in pool. A dynamic skill is **inactive by default** (`enabled: false`) and must be explicitly activated before it is injected. This lets you register a library of specialist skills at session construction and then enable only the ones relevant to the current task.
+
+```typescript
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o',
+  maxTokens: 128_000,
+  skills: [
+    {
+      name: 'code-review',
+      strategy: 'dynamic',
+      tags: ['engineering', 'review'],
+      requiredTools: ['read_file', 'list_directory'],
+      inject: 'system_prompt',
+      priority: 10,
+      version: '1.0.0',
+      description: 'Expert code reviewer',
+      standard: 'You are an expert code reviewer...',
+    },
+    {
+      name: 'data-analyst',
+      strategy: 'dynamic',
+      tags: ['data'],
+      inject: 'system_prompt',
+      priority: 10,
+      version: '1.0.0',
+      description: 'Data analysis expert',
+      standard: 'You are a data analysis expert...',
+    },
+  ],
+  // Enable specific dynamic skills at construction time:
+  activeDynamicSkills: ['code-review'],
+  // Or enable by tag:
+  // activeDynamicTags: ['engineering'],
+});
+```
+
+### Runtime enable/disable
+
+The `session.skills` accessor exposes the `SkillInjector` for runtime control:
+
+```typescript
+// Enable a dynamic skill by name
+session.skills.enableSkill('data-analyst');
+
+// Disable a dynamic skill
+session.skills.disableSkill('code-review');
+
+// Enable all dynamic skills tagged 'debugging'
+session.skills.enableByTags(['debugging']);
+
+// Disable all dynamic skills tagged 'verbose'
+session.skills.disableByTags(['verbose']);
+
+// List currently active skills (fixed + enabled dynamic)
+const active = session.skills.getActiveSkills();
+console.log(active.map(s => s.name));
+
+// Get all tools required by active skills
+const needed = session.skills.getRequiredTools();
+console.log('Tools needed:', needed);
+// → ['read_file', 'list_directory']
+```
+
+### Tool-Skill linking via `requiredTools`
+
+A skill can declare which tools it relies on via `requiredTools`. This is informational — lemura does not auto-register or auto-restrict tools based on it — but it lets the host application build tool arrays dynamically:
+
+```typescript
+const session = new SessionManager({ adapter, model, maxTokens, skills });
+session.skills.enableSkill('code-review');
+
+// Build the minimal tool set needed by active skills
+const allTools = [readFileTool, listDirTool, webSearchTool, shellTool];
+const needed = new Set(session.skills.getRequiredTools());
+const tools = allTools.filter(t => needed.has(t.name));
+
+// Re-run with the filtered tool set
+const session2 = new SessionManager({ adapter, model, maxTokens, tools, skills });
+```
 
 ---
 
@@ -142,70 +227,76 @@ Before responding, check: Is my answer complete? Does it address all parts of th
 
 ## Loading Skills
 
-### Option 1: From file (most common)
+### Option 1: Inline object (explicit fields — recommended)
+
+```typescript
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o',
+  maxTokens: 128_000,
+  skills: [
+    {
+      name: 'customer-persona',
+      version: '1.0.0',
+      description: 'Friendly customer support agent',
+      inject: 'system_prompt',
+      priority: 5,
+      strategy: 'fixed',
+      nano: 'You are a helpful, friendly customer support agent for Acme Corp.',
+      standard: `You are a helpful, empathetic customer support agent for Acme Corporation.
+
+Your style:
+- Always acknowledge the customer's frustration before solving the problem
+- Use the customer's name when you know it
+- End every response with a follow-up question`,
+    },
+  ],
+});
+```
+
+### Option 2: From file (markdown body as `content`)
+
+When you have a skill markdown file, read the body (without frontmatter) and pass it as `content`:
 
 ```typescript
 import { readFileSync } from 'fs';
+
+// The skill file's body (after the --- frontmatter block)
+const body = extractMarkdownBody(readFileSync('./skills/code-review.md', 'utf8'));
 
 const session = new SessionManager({
   adapter,
   model: 'gpt-4o',
   maxTokens: 128_000,
   skills: [
-    { content: readFileSync('./skills/code-review-expert.md', 'utf8') },
-    { content: readFileSync('./skills/security-first.md', 'utf8') },
+    {
+      name: 'code-review',
+      version: '1.0.0',
+      description: 'Code review expert',
+      inject: 'system_prompt',
+      priority: 10,
+      content: body,   // used as standard-level content
+    },
   ],
 });
 ```
 
-### Option 2: Inline (for simple/dynamic skills)
+### Option 3: Conditional / permission-based
+
+Only register skills based on context:
 
 ```typescript
-const session = new SessionManager({
-  adapter,
-  model: 'gpt-4o',
-  maxTokens: 128_000,
-  skills: [{
-    content: `---
-name: customer-persona
-version: 1.0.0
-inject: system_prompt
-priority: 5
-nano: You are a helpful, friendly customer support agent for Acme Corp.
----
+const skills: ISkill[] = [safetySkill]; // always fixed
 
-You are a helpful, empathetic customer support agent for Acme Corporation.
-
-Your style:
-- Always acknowledge the customer's frustration before solving the problem
-- Use the customer's name when you know it
-- End every response with a follow-up question or offer to help further
-- Never say "unfortunately" — instead say "I understand [concern] and here's what I can do..."
-`,
-  }],
-});
-```
-
-### Option 3: Auto-discovery from node_modules
-
-```json
-// In your tool package's package.json
-{
-  "name": "my-lemura-tools",
-  "lemura": {
-    "tools": ["./dist/tools/index.js"],
-    "skills": ["./skills/my-skill.md"]  // ← auto-discovered
-  }
+if (user.plan === 'pro') {
+  skills.push({ ...deepResearchSkill, strategy: 'dynamic', enabled: true });
 }
-```
 
-```typescript
-const session = new SessionManager({
-  adapter,
-  model: 'gpt-4o',
-  maxTokens: 128_000,
-  autodiscoverTools: true,  // also discovers skills
-});
+if (user.role === 'engineer') {
+  skills.push({ ...codeReviewSkill, strategy: 'dynamic', enabled: true });
+}
+
+const session = new SessionManager({ adapter, model, maxTokens, skills });
 ```
 
 ---
@@ -217,26 +308,23 @@ Skills are concatenated in priority order (lowest number = first). For skills at
 ```typescript
 skills: [
   // Priority 1 — injected first, highest authority
-  { content: `---
-name: safety-rules
-priority: 1
-inject: system_prompt
-nano: Never generate harmful, illegal, or NSFW content.
----
-ABSOLUTE RULES:
-1. Never generate harmful, illegal, or NSFW content.
-2. Always decline requests for personal information of real people.
-3. Never claim to be a human.
-` },
+  {
+    name: 'safety-rules',
+    priority: 1,
+    inject: 'system_prompt',
+    strategy: 'fixed',
+    nano: 'Never generate harmful, illegal, or NSFW content.',
+    standard: 'ABSOLUTE RULES:\n1. Never generate harmful content.',
+  },
 
   // Priority 10 — injected second
-  { content: `---
-name: researcher-persona
-priority: 10
-inject: system_prompt
----
-You are a thorough research assistant...
-` },
+  {
+    name: 'researcher-persona',
+    priority: 10,
+    inject: 'system_prompt',
+    strategy: 'fixed',
+    standard: 'You are a thorough research assistant...',
+  },
 ]
 ```
 
@@ -267,10 +355,41 @@ nano        ≤ 100         frontmatter nano: field
 
 ---
 
+## Observability — Skill Traces
+
+When `onTrace` is configured, every active skill emits a `skill / skill_load` trace at session construction:
+
+```typescript
+const session = new SessionManager({
+  adapter, model, maxTokens, skills,
+  onTrace: (event) => {
+    if (event.type === 'skill' && event.name === 'skill_load') {
+      console.log(`Skill loaded: ${event.metadata.name} (${event.metadata.strategy})`);
+      console.log(`  Required tools: ${event.metadata.requiredTools.join(', ')}`);
+    }
+  },
+});
+```
+
+The `system / session_init` trace also includes a skills summary:
+```json
+{
+  "type": "system",
+  "name": "session_init",
+  "metadata": {
+    "skills": { "total": 4, "active": 3, "fixed": 2, "dynamic": 1 }
+  }
+}
+```
+
+---
+
 ## Tips & Tricks
 
 > **Tip:** Skills with `priority < 5` are **never downgraded or skipped**, regardless of token budget. Use this for safety-critical rules that must always be present.
 
-> **Tip:** Test skill composition by calling `session.tools.register` with a fake `skill_list` tool and then asking "what skills are active?" This reveals what the model actually sees in the system prompt.
-
 > **Tip:** Skills are re-injected after every context compression event. This is the entire point — don't put rules in the regular conversation history if you want them to survive compression. Put them in skills.
+
+> **Tip:** Use `dynamic` skills for specialist modes (e.g. "code-review mode", "data-analysis mode") that your UI activates via `session.skills.enableByTags(['mode-tag'])`.
+
+> **Tip:** Combine `requiredTools` with `session.skills.getRequiredTools()` to build minimal, context-aware tool sets — expose only the tools the active skill set actually needs.
