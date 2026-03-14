@@ -910,7 +910,7 @@ function initAudioPlayer(docId) {
 
   if (!isRoot || !playerRoot) { playerRoot?.classList.add('hidden'); return }
 
-  const audioUrl = `/audio/${docId}.wav`
+  const audioUrl = `/audio/${docId}.mp3`
 
   // ── Build a throw-away probe to check existence without loading content
   const probe = new Audio()
