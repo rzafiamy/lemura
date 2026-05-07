@@ -14,11 +14,11 @@
 
 `lemura` is a robust, provider-agnostic npm package designed to encapsulate a full agentic AI runtime. It simplifies the complex orchestration of LLMs, tools, and context management into a single, cohesive interface.
 
-### ✨ Key Features in v1.4.0
+### ✨ Key Features in v1.4.1
 - **🧠 Dynamic Skill Market**: Switch skills on/off at runtime via tags, names, or tool dependencies.
 - **🗺️ Continuation Planning**: Multi-step tool chains with parallel execution and conditional logic.
 - **🎯 Intelligent Goal Maintenance**: LLM-powered sub-goal decomposition and status tracking.
-- **🔌 MCP Support**: Native Model Context Protocol integration for connecting to external tool servers.
+- **🔌 MCP Support**: Native Model Context Protocol integration with **custom header support** (auth).
 - **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer for security.
 - **⚡ Parallel Tool Calls**: Execute independent tools concurrently for reduced latency.
 - **🧹 Summary Injection**: ensures the model never "forgets" what was compressed away.

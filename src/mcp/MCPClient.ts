@@ -323,7 +323,11 @@ export class MCPClient {
         try {
             const res = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    ...this.config.headers
+                },
                 body: JSON.stringify(request),
                 signal: controller.signal
             });
@@ -391,7 +395,10 @@ export class MCPClient {
             // HTTP: fire-and-forget notify (some servers don't require it)
             fetch(this.config.url!, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...this.config.headers
+                },
                 body: initializedNotif
             }).catch(() => { /* optional notification — ignore errors */ });
         }

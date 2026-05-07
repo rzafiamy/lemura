@@ -53,6 +53,11 @@ export interface MCPServerConfig {
      */
     env?: Record<string, string>;
     /**
+     * For `http`/`sse`: custom headers to include in requests.
+     * @example { Authorization: 'Bearer <token>' }
+     */
+    headers?: Record<string, string>;
+    /**
      * Per-call timeout in milliseconds. Defaults to `30_000`.
      */
     timeoutMs?: number;
