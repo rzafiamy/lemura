@@ -1,4 +1,4 @@
-  <img src="./docs/assets/logo.png" alt="lemura logo" width="200" />
+  <img src="https://raw.githubusercontent.com/rzafiamy/lemura/main/sites/docs/public/lemura-logo.png" alt="lemura logo" width="200" />
 
 # lemura
 
