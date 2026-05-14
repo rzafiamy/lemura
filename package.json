@@ -2,6 +2,26 @@
   "name": "lemura",
   "version": "1.4.2",
   "description": "Provider-agnostic agentic AI runtime",
+  "license": "MIT",
+  "author": "rzafiamy",
+  "keywords": [
+    "ai",
+    "agent",
+    "react-loop",
+    "rag",
+    "provider-agnostic",
+    "llm",
+    "runtime",
+    "mcp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rzafiamy/lemura.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rzafiamy/lemura/issues"
+  },
+  "homepage": "https://github.com/rzafiamy/lemura#readme",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
