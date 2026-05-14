@@ -14,16 +14,21 @@
 
 `lemura` is a robust, provider-agnostic npm package designed to encapsulate a full agentic AI runtime. It simplifies the complex orchestration of LLMs, tools, and context management into a single, cohesive interface.
 
-### ✨ Key Features in v1.4.1
+### ❓ Why lemura?
+
+- **Zero Lock-in**: Switch between OpenAI, Anthropic, Groq, or local Ollama instances by changing one line of code.
+- **Production Ready**: Built-in context compression, tool retry logic, and execution budget enforcement.
+- **Developer First**: Premium logging, native TypeScript types, and Model Context Protocol (MCP) support.
+
+### ✨ Key Features
+
 - **🧠 Dynamic Skill Market**: Switch skills on/off at runtime via tags, names, or tool dependencies.
-- **🗺️ Continuation Planning**: Multi-step tool chains with parallel execution and conditional logic.
-- **🎯 Intelligent Goal Maintenance**: LLM-powered sub-goal decomposition and status tracking.
-- **🔌 MCP Support**: Native Model Context Protocol integration with **custom header support** (auth).
-- **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer for security.
-- **⚡ Parallel Tool Calls**: Execute independent tools concurrently for reduced latency.
-- **🧹 Summary Injection**: ensures the model never "forgets" what was compressed away.
-- **📊 Enhanced Observability**: Detailed tracing, token tracking, and execution budget enforcement.
-- **🌊 Native Streaming**: Token-by-token completion for smooth user experiences.
+- **🔌 Native MCP Support**: Connect to any Model Context Protocol server with custom header support (Auth).
+- **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer for secure tool execution.
+- **🎯 Goal Maintenance**: LLM-powered sub-goal decomposition and status tracking across turns.
+- **🧹 Summary Injection**: Automatically compresses history while ensuring the model never "forgets" the context.
+- **🌊 Native Streaming**: Token-by-token completion for smooth, responsive user experiences.
+- **📊 Observability**: Detailed tracing, token tracking, and structured logging with actionable hints.
 
 ## 🚀 Install
 
@@ -84,6 +89,37 @@ async function main() {
 }
 
 main();
+```
+
+### 🛠️ Quick Start: Creating a Tool
+
+Adding tools to your agent is straightforward using the standard `IToolDefinition` interface.
+
+```ts
+import { IToolDefinition } from 'lemura';
+
+const getWeather: IToolDefinition = {
+  name: 'get_weather',
+  description: 'Get the current weather for a specific city',
+  parameters: {
+    type: 'object',
+    properties: {
+      city: { type: 'string', description: 'The name of the city' }
+    },
+    required: ['city']
+  },
+  execute: async ({ city }) => {
+    // Call your weather API here
+    return `The weather in ${city} is sunny, 22°C.`;
+  }
+};
+
+// Register it when creating the session
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o-mini',
+  tools: [getWeather]
+});
 ```
 
 ## 🧠 Core Concepts
