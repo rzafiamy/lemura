@@ -3,6 +3,7 @@ import {
     CompletionRequest,
     CompletionResponse,
     CompletionChunk,
+    NormalizedMessage,
     TranscriptionRequest,
     TranscriptionResponse,
     SynthesisRequest,
@@ -173,10 +174,40 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
         return 'stop';
     }
 
+    private toOpenAIMessages(messages: NormalizedMessage[]): unknown[] {
+        return messages.map(msg => {
+            if (msg.role === 'assistant' && msg.toolCalls?.length) {
+                return {
+                    role: 'assistant',
+                    content: msg.content || null,
+                    tool_calls: msg.toolCalls.map((tc: { id: string; name: string; arguments: string }) => ({
+                        id: tc.id,
+                        type: 'function',
+                        function: {
+                            name: tc.name,
+                            arguments: typeof tc.arguments === 'string'
+                                ? tc.arguments
+                                : JSON.stringify(tc.arguments),
+                        },
+                    })),
+                };
+            }
+            if (msg.role === 'tool') {
+                // lemura's buildMessages() puts the toolCallId in msg.name
+                return {
+                    role: 'tool',
+                    tool_call_id: msg.name,
+                    content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+                };
+            }
+            return msg;
+        });
+    }
+
     private buildPayload(request: CompletionRequest): unknown {
         const payload: Record<string, unknown> = {
             model: request.model || this.defaultModel,
-            messages: request.messages,
+            messages: this.toOpenAIMessages(request.messages),
         };
         if (request.maxTokens !== undefined) payload.max_tokens = request.maxTokens;
         if (request.temperature !== undefined) payload.temperature = request.temperature;
