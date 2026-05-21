@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-05-21
+
+### Added
+
+- **`StepVerifier` on `ContinuationStep`** (`verify?: StepVerifier`): Optional semantic verifier called after a tool executes to confirm the sub-goal is actually satisfied — independent of the LLM's own assessment. Returns `pass`, `fail`, or `retry`. A `retry` verdict resets the step to `pending` and re-queues it for the next iteration; `fail` triggers BFS propagation to dependant steps. Supports `maxRetries?: number` (default: `0`) before a `retry` verdict is forced to `fail`. Verifier exceptions are caught and treated as `fail`.
+
+- **`StepVerifierResult` interface**: `{ status: 'pass' | 'fail' | 'retry'; reason?: string }` — the return type of `StepVerifier.check()`.
+
+- **`ContinuationPlanner.markStepPending(stepId)`**: Resets a step to `pending` for a retry attempt and increments its internal retry counter.
+
+- **`ContinuationPlanner.getRetryCount(stepId)`**: Returns how many times a step has been retried.
+
+- **`SessionManager.getPlan()`**: New public method returning a snapshot of the current `ContinuationPlan` (or `null` if no plan is active). Use this after `run()` for post-mortem inspection of step statuses without relying on `onTrace`.
+
+- **`TraceEvent.type: 'verification'`**: New trace type. Emitted as `step_retry` when a verifier returns `retry`, and supplements the existing `step_failed` / `step_skipped` events now emitted by the planner.
+
+- **`onStepFailed` / `onStepSkipped` callbacks on `ContinuationPlanner`**: Internal callbacks wired at `setPlan()` time to emit `planning/step_failed` and `planning/step_skipped` trace events — including BFS-propagated skips, which were previously invisible to `onTrace`.
+
+### Changed
+
+- **`maxCompletionTokens` default raised from `2_000` to `4_000`**: The previous default was too low for complex reasoning chains, causing silent mid-thought truncations. Fully backward-compatible — any explicit `maxCompletionTokens` in existing configs is unchanged.
+
+- **`ContinuationPlanner.markStepFailed(stepId, reason?)`** and **`markStepSkipped(stepId, reason?)`**: Both methods now accept an optional `reason` string surfaced in trace events and BFS-propagated skip messages.
+
+### Fixed
+
+- **BFS-propagated step skips were invisible to `onTrace`**: When a step failed and its dependants were automatically skipped, no trace events were emitted for the skipped steps. The new `onStepSkipped` callback fires for every BFS-propagated skip, making silent plan collapses visible.
+
+- **No way to inspect plan state after `run()`**: `continuationPlanner` was private with no public accessor. The new `getPlan()` method exposes a safe snapshot for post-run debugging.
+
+### Other
+
+- **Config coherence warning** (`maxSteps` vs `maxIterations`): The `SessionManager` constructor now logs a `warn`-level message when `maxSteps` is explicitly set without a matching `maxIterations`, or when `maxSteps` is so large relative to `maxIterations` that it can never be reached. No behavior change — purely diagnostic, fully backward-compatible.
+
+## [1.4.3] - 2026-05-14
+
+### Changed
+
+- **npm package metadata**: Added `repository`, `bugs`, `homepage`, `keywords`, `author`, `license`, `engines`, `sideEffects`, and `files` fields to `package.json` to meet npm publishing standards.
+
+## [1.4.2] - 2026-05-14
+
+### Fixed
+
+- **OpenAI wire format for tool calls**: `OpenAICompatibleAdapter.toOpenAIMessages()` now converts lemura's internal camelCase `toolCalls` (assistant turns) and `name`-keyed tool results (tool turns) to the proper OpenAI wire format (`tool_calls` / `tool_call_id`). Previously, providers enforcing strict OpenAI compatibility (e.g. Cerebras) would reject these messages with a 400/422 error.
+
 ## [1.4.1] - 2026-05-07
 
 ### Added

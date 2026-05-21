@@ -140,7 +140,7 @@ export interface SessionConfig {
     skillTokenBudget?: number;
     /**
      * Maximum tokens the provider may generate per completion call.
-     * Defaults to 2 000 when not set. This is separate from `maxTokens`
+     * Defaults to 4 000 when not set. This is separate from `maxTokens`
      * which controls the total context window size.
      */
     maxCompletionTokens?: number;
@@ -197,7 +197,7 @@ export interface SessionConfig {
 /** Rich trace event for observability */
 export interface TraceEvent {
     sessionId?: string;
-    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill';
+    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill' | 'verification';
     name: string;
     input?: any;
     output?: any;

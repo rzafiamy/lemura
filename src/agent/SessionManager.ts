@@ -113,6 +113,30 @@ export class SessionManager {
         // maxSteps guard (default 20)
         this.stepCounter = new StepCounter(config.maxSteps ?? 20);
 
+        // Warn when maxSteps is explicitly set but maxIterations is not —
+        // the default maxIterations=10 will stop the loop before maxSteps is reached
+        // if the agent averages more than 1 tool call per iteration.
+        if (config.maxSteps !== undefined && config.maxIterations === undefined) {
+            const defaultMaxIts = 10;
+            if (config.maxSteps > defaultMaxIts) {
+                this.logger.warn(
+                    `[Config] maxSteps=${config.maxSteps} is set but maxIterations is not. ` +
+                    `The default maxIterations=${defaultMaxIts} may stop the agent before maxSteps is reached. ` +
+                    `Consider setting maxIterations to at least Math.ceil(maxSteps / avgToolCallsPerTurn).`
+                );
+            }
+        }
+
+        // Warn when maxSteps is unreachably large compared to maxIterations
+        if (config.maxSteps !== undefined && config.maxIterations !== undefined) {
+            if (config.maxSteps > config.maxIterations * 10) {
+                this.logger.warn(
+                    `[Config] maxSteps (${config.maxSteps}) is much larger than maxIterations (${config.maxIterations}). ` +
+                    `The agent will be stopped by maxIterations before maxSteps is ever reached.`
+                );
+            }
+        }
+
         // Tool response processor — accept custom instance or build from config
         this.toolResponseProcessor = (config.toolResponseProcessor instanceof ToolResponseProcessor
             ? config.toolResponseProcessor
@@ -357,15 +381,40 @@ export class SessionManager {
         steps: ContinuationStep[],
         strategy: ContinuationPlan['strategy'] = 'sequential'
     ): void {
-        this.continuationPlanner = new ContinuationPlanner({
-            steps,
-            currentStepIndex: 0,
-            strategy
-        });
+        this.continuationPlanner = new ContinuationPlanner(
+            { steps, currentStepIndex: 0, strategy },
+            {
+                onStepFailed: (stepId, reason) => this.emitTrace('planning', 'step_failed', { stepId, reason }),
+                onStepSkipped: (stepId, reason) => this.emitTrace('planning', 'step_skipped', { stepId, reason }),
+            }
+        );
         // Store plan in metadata so it survives context compression
         this.context.metadata['continuationPlan'] = this.continuationPlanner.getPlan();
         this.logger.debug(`[ContinuationPlanner] Plan set with ${steps.length} steps (strategy: ${strategy})`);
         this.emitTrace('planning', 'plan_set', { stepCount: steps.length, strategy });
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan inspection API
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns a snapshot of the current continuation plan, or `null` if no plan
+     * has been set via `setPlan()`.
+     *
+     * Use this after `run()` to inspect which steps completed, failed, or were skipped.
+     *
+     * @since 1.4.4
+     *
+     * @example
+     * ```typescript
+     * await session.run('Run the pipeline');
+     * const plan = session.getPlan();
+     * const failed = plan?.steps.filter(s => s.status === 'failed');
+     * ```
+     */
+    getPlan(): import('./execution/ContinuationPlanner.js').ContinuationPlan | null {
+        return this.continuationPlanner ? this.continuationPlanner.getPlan() : null;
     }
 
     // -----------------------------------------------------------------------
@@ -476,7 +525,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             const response = await this.adapter.complete({
                 model: this.config.model,
                 messages: [{ role: 'user', content: planningPrompt }],
-                maxTokens: this.config.maxCompletionTokens ?? 2_000,
+                maxTokens: this.config.maxCompletionTokens ?? 4_000,
             });
 
             // Parse JSON from the response (tolerate code fences)
@@ -860,6 +909,41 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 s => s.toolName === tc.name && s.status === 'running'
             );
             if (runningStep) {
+                // Run semantic verifier if provided
+                if (runningStep.verify) {
+                    const maxRetries = runningStep.verify.maxRetries ?? 0;
+                    const retryCount = this.continuationPlanner.getRetryCount(runningStep.stepId);
+                    let verdict: import('./execution/ContinuationPlanner.js').StepVerifierResult;
+                    try {
+                        verdict = await runningStep.verify.check(content, args);
+                    } catch (verifyErr: unknown) {
+                        verdict = { status: 'fail', reason: `Verifier threw: ${(verifyErr as Error).message}` };
+                    }
+
+                    if (verdict.status === 'fail' || (verdict.status === 'retry' && retryCount >= maxRetries)) {
+                        this.continuationPlanner.markStepFailed(runningStep.stepId);
+                        this.context.metadata['continuationPlan'] = this.continuationPlanner.getPlan();
+                        this.emitTrace('planning', 'step_failed', {
+                            stepId: runningStep.stepId,
+                            reason: verdict.reason ?? 'verifier returned fail',
+                            retryCount
+                        });
+                        return content;
+                    }
+
+                    if (verdict.status === 'retry') {
+                        this.continuationPlanner.markStepPending(runningStep.stepId);
+                        this.context.metadata['continuationPlan'] = this.continuationPlanner.getPlan();
+                        this.emitTrace('planning', 'step_retry', {
+                            stepId: runningStep.stepId,
+                            reason: verdict.reason,
+                            retryCount: this.continuationPlanner.getRetryCount(runningStep.stepId)
+                        });
+                        return content;
+                    }
+                    // verdict === 'pass' — fall through to markStepDone
+                }
+
                 this.continuationPlanner.markStepDone(runningStep.stepId, content);
                 // Store in context.metadata['toolOutputs']
                 if (runningStep.outputKey) {
@@ -946,7 +1030,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         const maxIts = this.config.maxIterations || 10;
         this.iterations = 0;
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
-        const maxCompletionTokens = this.config.maxCompletionTokens ?? 2_000;
+        const maxCompletionTokens = this.config.maxCompletionTokens ?? 4_000;
 
         // The ReAct Loop
         while (this.iterations < maxIts) {
@@ -1201,7 +1285,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         const maxIts = this.config.maxIterations || 10;
         this.iterations = 0;
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
-        const maxCompletionTokens = this.config.maxCompletionTokens ?? 2_000;
+        const maxCompletionTokens = this.config.maxCompletionTokens ?? 4_000;
 
         while (this.iterations < maxIts) {
             this.iterations++;

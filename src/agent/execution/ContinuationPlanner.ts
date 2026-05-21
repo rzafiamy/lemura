@@ -9,6 +9,46 @@ export interface StepCondition {
     outputContains: string;
 }
 
+/**
+ * Result returned by a `StepVerifier.check` function.
+ * - `pass`  — the sub-goal is achieved; the step is marked `done`.
+ * - `fail`  — the sub-goal failed; the step is marked `failed` and BFS propagates to dependants.
+ * - `retry` — the output is unsatisfactory but retriable; the step is reset to `pending`.
+ */
+export interface StepVerifierResult {
+    status: 'pass' | 'fail' | 'retry';
+    reason?: string;
+}
+
+/**
+ * Optional semantic verifier attached to a `ContinuationStep`.
+ * Called after the tool executes successfully to confirm the sub-goal is actually met.
+ *
+ * @example
+ * verify: {
+ *   maxRetries: 2,
+ *   check: (output) => {
+ *     const data = JSON.parse(output);
+ *     return data.rows?.length > 0
+ *       ? { status: 'pass' }
+ *       : { status: 'retry', reason: 'Empty result set' };
+ *   }
+ * }
+ */
+export interface StepVerifier {
+    /**
+     * Inspects the tool output and decides whether the sub-goal is satisfied.
+     * @param output  - Serialised tool result string
+     * @param args    - The resolved arguments that were passed to the tool
+     */
+    check: (output: string, args: Record<string, unknown>) => Promise<StepVerifierResult> | StepVerifierResult;
+    /**
+     * Maximum number of `retry` verdicts allowed before the step is forced to `failed`.
+     * Defaults to 0 (no retries — a `retry` verdict immediately becomes `failed`).
+     */
+    maxRetries?: number;
+}
+
 export interface ContinuationStep {
     stepId: string;
     toolName: string;
@@ -32,6 +72,14 @@ export interface ContinuationStep {
      * contains the given substring. When the condition is not met, the step is skipped.
      */
     condition?: StepCondition;
+    /**
+     * Optional semantic verifier: called after the tool executes to confirm the
+     * sub-goal is actually satisfied. Supports `pass / fail / retry` verdicts
+     * with a configurable `maxRetries` count.
+     *
+     * @since 1.4.4
+     */
+    verify?: StepVerifier;
 }
 
 export interface ContinuationPlan {
@@ -62,9 +110,20 @@ export interface ContinuationPlan {
 export class ContinuationPlanner {
     private plan: ContinuationPlan;
     private outputs: Map<string, string> = new Map();
+    private retryCount: Map<string, number> = new Map();
+    private onStepSkipped: ((stepId: string, reason: string) => void) | undefined;
+    private onStepFailed: ((stepId: string, reason: string) => void) | undefined;
 
-    constructor(plan: ContinuationPlan) {
+    constructor(
+        plan: ContinuationPlan,
+        callbacks?: {
+            onStepSkipped?: (stepId: string, reason: string) => void;
+            onStepFailed?: (stepId: string, reason: string) => void;
+        }
+    ) {
         this.plan = { ...plan, steps: plan.steps.map(s => ({ ...s })) };
+        this.onStepSkipped = callbacks?.onStepSkipped;
+        this.onStepFailed = callbacks?.onStepFailed;
     }
 
     // -------------------------------------------------------------------------
@@ -155,17 +214,33 @@ export class ContinuationPlanner {
     /**
      * Marks a step as failed and propagates `skipped` to all transitively dependent steps.
      */
-    markStepFailed(stepId: string): void {
+    markStepFailed(stepId: string, reason = 'step failed'): void {
         this._updateStep(stepId, { status: 'failed' });
+        this.onStepFailed?.(stepId, reason);
         this._skipDependants(stepId);
     }
 
     /**
      * Marks a step as skipped (e.g., condition not met) and propagates to its dependants.
      */
-    markStepSkipped(stepId: string): void {
+    markStepSkipped(stepId: string, reason = 'condition not met'): void {
         this._updateStep(stepId, { status: 'skipped' });
+        this.onStepSkipped?.(stepId, reason);
         this._skipDependants(stepId);
+    }
+
+    /**
+     * Resets a step back to `pending` for a retry attempt.
+     * Increments the internal retry counter for the step.
+     */
+    markStepPending(stepId: string): void {
+        this._updateStep(stepId, { status: 'pending' });
+        this.retryCount.set(stepId, (this.retryCount.get(stepId) ?? 0) + 1);
+    }
+
+    /** Returns how many times a step has been retried. */
+    getRetryCount(stepId: string): number {
+        return this.retryCount.get(stepId) ?? 0;
     }
 
     // -------------------------------------------------------------------------
@@ -218,6 +293,7 @@ export class ContinuationPlanner {
             for (const step of this.plan.steps) {
                 if (step.status === 'pending' && step.dependsOn.some(d => toSkip.has(d))) {
                     this._updateStep(step.stepId, { status: 'skipped' });
+                    this.onStepSkipped?.(step.stepId, `dependency '${failedStepId}' failed or was skipped`);
                     toSkip.add(step.stepId);
                     changed = true;
                 }
