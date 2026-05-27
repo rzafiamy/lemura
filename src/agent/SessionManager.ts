@@ -6,10 +6,10 @@ import {
     Turn,
     ILogger,
     IToolDefinition,
-    CompletionChunk,
     NormalizedMessage,
     ToolCall,
-    TraceEvent
+    TraceEvent,
+    GoalVerifierResult
 } from '../types/index.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
@@ -977,265 +977,21 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     /**
      * Runs the full ReAct loop for a user message and returns the final assistant response.
      *
-     * When `enableGoalPlanning` is true and no goal has been manually set, a mini-planning
-     * LLM call is made before the first iteration to decompose the task into sub-goals.
-     *
      * @param userMessage - The user's message (string or multimodal content blocks)
      * @returns The assistant's final response string
      * @throws {LemuraMaxIterationsError} When the loop exceeds `maxIterations`
      */
     async run(userMessage: string | ContentBlock[]): Promise<string> {
-        // Ensure MCP servers are connected before first use
         if (this.mcpReady) await this.mcpReady;
         await this.ensureScratchpadLoaded();
-
-        const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
-        this.logger.info(`Starting new session run`, {
-            model: this.config.model,
-            message: userMessageStr
-        });
-
-        // Goal injector: initialise on first run if enableGoalPlanning and no manual goal set
-        if (this.config.enableGoalPlanning && !this.goalInjector) {
-            this.goalInjector = new GoalInjector({
-                id: 'auto',
-                statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
-                decomposition: [],
-                successCriteria: ['The user request is fully answered'],
-                injectionFrequency: this.config.goalInjectionFrequency ?? 'always',
-                injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt',
-            });
-            this.context.metadata['goal'] = this.goalInjector.getGoal();
-            this.logger.debug('Goal injector initialised (auto)');
-            this.emitTrace('planning', 'goal_init', {
-                statement: this.goalInjector.getGoal().statement,
-                criteria: this.goalInjector.getGoal().successCriteria
-            });
-
-            // Run mini-planning step to decompose the goal
-            await this._runMiniPlanningStep(userMessageStr);
-        }
-
-        // 1. Prepare context with user's message
-        this.context.turns.push({
-            role: 'user',
-            content: userMessage,
-            tokenCount: Array.isArray(userMessage)
-                ? userMessage.length * 50
-                : this.adapter.estimateTokens(userMessage),
-            turnIndex: this.context.turns.length,
-            compressed: false
-        });
-
-        const maxIts = this.config.maxIterations || 10;
-        this.iterations = 0;
-        this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
-        const maxCompletionTokens = this.config.maxCompletionTokens ?? 4_000;
-
-        // The ReAct Loop
-        while (this.iterations < maxIts) {
-            this.iterations++;
-            this.logger.debug(`ReAct Iteration ${this.iterations}/${maxIts}`);
-
-            // 2. Sync token count then prepare context window (compress if needed).
-            // Turns are pushed without updating context.tokenCount, so recalculate
-            // here to give compression strategies an accurate picture.
-            this.context.tokenCount =
-                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
-                this.adapter.estimateTokens(this.context.systemPrompt || '');
-            this.context = await this.contextManager.prepare(this.context);
-
-            // Build messages
-            const systemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
-            let messages = this.buildMessages(systemPrompt, this.iterations);
-
-            // If maxSteps reached — force conclusion
-            if (this.stepCounter.isMaxReached()) {
-                this.logger.warn(`maxSteps (${this.config.maxSteps ?? 20}) reached — forcing final response`);
-                messages.push({
-                    role: 'system',
-                    content: this.stepCounter.getForcedConclusionPrompt() + '\n\n' + FinalResponseFormatter.getRequiredStructure()
-                });
-                this.emitTrace('planning', 'max_steps_reached', {
-                    maxSteps: this.config.maxSteps,
-                    currentSteps: this.stepCounter.count
-                });
-            }
-
-            // 3. Call provider
-            this.logger.debug(`Calling provider adapter (${this.adapter.name})...`);
-            this.emitTrace('thinking', 'llm_call', {
-                model: this.config.model,
-                iteration: this.iterations,
-                totalTokens: this.totalTokens
-            }, null, null, 'running');
-
-            let response;
-            try {
-                response = await this.adapter.complete({
-                    model: this.config.model,
-                    messages: messages,
-                    tools: this.stepCounter.isMaxReached() ? [] : this.toolRegistry.getAll(),
-                    maxTokens: maxCompletionTokens
-                });
-            } catch (err: unknown) {
-                const e = err as { problem?: string; hints?: string[]; message?: string };
-                const metadata = e.problem ? { problem: e.problem, hints: e.hints ?? [] } : {};
-                this.logger.fatal(`Provider call failed: ${e.message ?? String(err)}`, metadata);
-                this.emitTrace('error', 'llm_call_failed', { error: e.message ?? String(err) });
-                throw err;
-            }
-
-            // Update token count
-            if (response.usage) {
-                this.totalTokens += response.usage.totalTokens;
-            }
-            this.emitTrace('thinking', 'llm_call', {
-                model: this.config.model,
-                usage: response.usage,
-                totalTokens: this.totalTokens
-            }, null, response.content, 'done');
-
-            // 4a. Tool calls
-            if (response.finishReason === 'tool_call' && response.toolCalls) {
-                this.logger.info(`Assistant requested ${response.toolCalls.length} tool calls`, {
-                    tools: response.toolCalls.map(tc => tc.name)
-                });
-
-                // Count steps
-                this.stepCounter.increment(response.toolCalls.length);
-
-                const toolResults: Array<{ toolCallId: string; content: string }> = [];
-
-                if (this.config.parallelToolCalls) {
-                    // --- Parallel execution ---
-                    const budget = this.config.toolExecutionBudget;
-                    const maxConcurrent = budget?.maxConcurrentCalls ?? response.toolCalls.length;
-
-                    // Process in batches of maxConcurrent
-                    for (let i = 0; i < response.toolCalls.length; i += maxConcurrent) {
-                        const batch: ToolCall[] = response.toolCalls.slice(i, i + maxConcurrent);
-
-                        // Check firewall for all in batch first (sequential — may require user interaction)
-                        const allowed: ToolCall[] = [];
-                        for (const tc of batch) {
-                            const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
-                            if (ok) allowed.push(tc);
-                            else this.emitTrace('budget', 'firewall_blocked', { toolName: tc.name });
-                        }
-
-                        this.emitTrace('planning', 'parallel_execution', {
-                            batchSize: allowed.length,
-                            totalInResponse: response.toolCalls.length
-                        });
-
-                        // Execute allowed calls in parallel
-                        const batchResults = await Promise.all(
-                            allowed.map(async (tc: ToolCall) => {
-                                try {
-                                    const content = await this.executeSingleToolCall(tc);
-                                    return { toolCallId: tc.id, content };
-                                } catch (e: unknown) {
-                                    const msg = e instanceof Error ? e.message : String(e);
-                                    const isTimeout = e instanceof LemuraToolTimeoutError;
-                                    this.logger.error(`Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed'}: ${msg}`);
-                                    return { toolCallId: tc.id, content: `Error: ${msg}` };
-                                }
-                            })
-                        );
-                        toolResults.push(...batchResults);
-                    }
-                } else {
-                    // --- Sequential execution ---
-                    for (const tc of response.toolCalls) {
-                        const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
-                        if (!ok) continue;
-
-                        try {
-                            const content = await this.executeSingleToolCall(tc);
-                            toolResults.push({ toolCallId: tc.id, content });
-                        } catch (e: unknown) {
-                            const msg = e instanceof Error ? e.message : String(e);
-                            const isTimeout = e instanceof LemuraToolTimeoutError;
-                            this.logger.error(`Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed'}: ${msg}`, {
-                                problem: `Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed to execute'}.`,
-                                hints: isTimeout
-                                    ? ['Increase toolRegistryTimeoutMs or optimise the tool implementation.']
-                                    : ['Check the tool parameters and ensure required services are running.']
-                            });
-                            toolResults.push({ toolCallId: tc.id, content: `Error: ${msg}` });
-                        }
-                    }
-                }
-
-                // Append assistant turn with tool calls
-                const assistantTurn: Turn = {
-                    role: 'assistant',
-                    content: response.content || '',
-                    tokenCount: this.adapter.estimateTokens(response.content || '') + 50,
-                    turnIndex: this.context.turns.length,
-                    compressed: false,
-                    toolCalls: response.toolCalls
-                };
-                this.context.turns.push(assistantTurn);
-                if (this.config.onTurn) this.config.onTurn(assistantTurn);
-
-                // Append tool observation turns
-                for (const res of toolResults) {
-                    const toolTurn: Turn = {
-                        role: 'tool',
-                        content: res.content,
-                        tokenCount: this.adapter.estimateTokens(res.content),
-                        turnIndex: this.context.turns.length,
-                        compressed: false,
-                        toolResults: [res]
-                    };
-                    this.context.turns.push(toolTurn);
-                    if (this.config.onTurn) this.config.onTurn(toolTurn);
-                }
-
-                // Advance goal turn counter
-                if (this.goalInjector) this.goalInjector.incrementTurn();
-
-                continue;
-            }
-
-            // 4b. Final / stop response
-            if (
-                response.finishReason === 'stop' ||
-                response.finishReason === 'max_tokens' ||
-                response.finishReason === 'error'
-            ) {
-                const finalTurn: Turn = {
-                    role: 'assistant',
-                    content: response.content,
-                    tokenCount: response.usage?.completionTokens ?? this.adapter.estimateTokens(response.content),
-                    turnIndex: this.context.turns.length,
-                    compressed: false
-                };
-                this.context.turns.push(finalTurn);
-                if (this.config.onTurn) this.config.onTurn(finalTurn);
-                this.logger.info(`Run completed successfully`);
-                return response.content;
-            }
-        }
-
-        const maxItsErr = new LemuraMaxIterationsError(`Exceeded max iterations of ${maxIts}`);
-        this.logger.fatal(maxItsErr.message, {
-            problem: 'The agent entered an infinite loop or took too many steps to resolve the task.',
-            hints: [
-                'Increase maxIterations if the task is complex.',
-                'Check if tools are returning consistent results.'
-            ]
-        });
-        throw maxItsErr;
+        return this._executeLoop(userMessage, { label: 'run' });
     }
 
     /**
      * Runs the ReAct loop and streams the final assistant response token-by-token.
      *
-     * Tool calls within the loop are still executed synchronously (they must complete
-     * before streaming the conclusion). Only the final LLM text output is streamed.
+     * All tool calls, goal verification, and corrections complete before any token
+     * is yielded — the stream delivers only the clean final response.
      *
      * @param userMessage - The user's message (string or multimodal content blocks)
      * @returns An `AsyncIterable<string>` of delta tokens from the final response
@@ -1248,17 +1004,13 @@ Respond ONLY with valid JSON (no markdown, no explanations):
      * ```
      */
     async *stream(userMessage: string | ContentBlock[]): AsyncIterable<string> {
-        // Ensure MCP servers are connected before first use
         if (this.mcpReady) await this.mcpReady;
         await this.ensureScratchpadLoaded();
 
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
-        this.logger.info(`Starting streaming session run`, {
-            model: this.config.model,
-            message: userMessageStr
-        });
+        this.logger.info(`Starting streaming session run`, { model: this.config.model, message: userMessageStr });
 
-        // Goal injector: initialise on first run if enableGoalPlanning and no manual goal set
+        // Goal injector init
         if (this.config.enableGoalPlanning && !this.goalInjector) {
             this.goalInjector = new GoalInjector({
                 id: 'auto',
@@ -1275,9 +1027,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         this.context.turns.push({
             role: 'user',
             content: userMessage,
-            tokenCount: Array.isArray(userMessage)
-                ? userMessage.length * 50
-                : this.adapter.estimateTokens(userMessage),
+            tokenCount: Array.isArray(userMessage) ? userMessage.length * 50 : this.adapter.estimateTokens(userMessage),
             turnIndex: this.context.turns.length,
             compressed: false
         });
@@ -1305,7 +1055,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 });
             }
 
-            // Non-final iterations: complete() to check for tool calls first
+            // Use complete() for tool-call detection on non-final iterations
             let response;
             try {
                 response = await this.adapter.complete({
@@ -1319,22 +1069,288 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 throw err;
             }
 
-            // Handle tool calls (non-streaming, same as run())
+            // Tool calls — execute silently, no yielding
             if (response.finishReason === 'tool_call' && response.toolCalls) {
                 this.logger.info(`[stream] Tool calls: ${response.toolCalls.map(tc => tc.name).join(', ')}`);
                 this.stepCounter.increment(response.toolCalls.length);
 
                 const toolResults: Array<{ toolCallId: string; content: string }> = [];
-
                 for (const tc of response.toolCalls) {
                     const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
                     if (!ok) continue;
                     try {
-                        const content = await this.executeSingleToolCall(tc);
-                        toolResults.push({ toolCallId: tc.id, content });
+                        toolResults.push({ toolCallId: tc.id, content: await this.executeSingleToolCall(tc) });
                     } catch (e: unknown) {
-                        const msg = e instanceof Error ? e.message : String(e);
-                        toolResults.push({ toolCallId: tc.id, content: `Error: ${msg}` });
+                        toolResults.push({ toolCallId: tc.id, content: `Error: ${e instanceof Error ? e.message : String(e)}` });
+                    }
+                }
+
+                const assistantTurn: Turn = {
+                    role: 'assistant', content: response.content || '',
+                    tokenCount: this.adapter.estimateTokens(response.content || '') + 50,
+                    turnIndex: this.context.turns.length, compressed: false, toolCalls: response.toolCalls
+                };
+                this.context.turns.push(assistantTurn);
+                if (this.config.onTurn) this.config.onTurn(assistantTurn);
+
+                for (const res of toolResults) {
+                    const toolTurn: Turn = {
+                        role: 'tool', content: res.content,
+                        tokenCount: this.adapter.estimateTokens(res.content),
+                        turnIndex: this.context.turns.length, compressed: false, toolResults: [res]
+                    };
+                    this.context.turns.push(toolTurn);
+                    if (this.config.onTurn) this.config.onTurn(toolTurn);
+                }
+
+                if (this.goalInjector) this.goalInjector.incrementTurn();
+                continue;
+            }
+
+            // Final response — re-prepare context then stream it
+            this.context.tokenCount =
+                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
+                this.adapter.estimateTokens(this.context.systemPrompt || '');
+            this.context = await this.contextManager.prepare(this.context);
+            const finalSystemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
+            const finalMessages = this.buildMessages(finalSystemPrompt, this.iterations);
+
+            let accumulated = '';
+            let finalTokenCount = 0;
+            let finalFinishReason: string | undefined;
+
+            for await (const chunk of this.adapter.stream({
+                model: this.config.model, messages: finalMessages,
+                maxTokens: maxCompletionTokens, stream: true
+            })) {
+                if (chunk.delta) {
+                    accumulated += chunk.delta;
+                    finalTokenCount += Math.ceil(chunk.delta.length / 4);
+                    yield chunk.delta;
+                }
+                if (chunk.finished) {
+                    finalFinishReason = chunk.finishReason;
+                    if (chunk.usage) this.totalTokens += chunk.usage.totalTokens;
+                    this.emitTrace('thinking', 'llm_stream_finished', {
+                        usage: chunk.usage, totalTokens: this.totalTokens, finishReason: chunk.finishReason
+                    });
+                }
+            }
+
+            const finalTurn: Turn = {
+                role: 'assistant', content: accumulated,
+                tokenCount: finalTokenCount,
+                turnIndex: this.context.turns.length, compressed: false
+            };
+            this.context.turns.push(finalTurn);
+            if (this.config.onTurn) this.config.onTurn(finalTurn);
+
+            // Goal verification — runs AFTER yielding, never causes a second stream
+            if (finalFinishReason === 'stop') {
+                const verdict = await this._verifyGoal(this.context.turns);
+                if (verdict && !verdict.achieved && verdict.missing) {
+                    this.logger.info(`[GoalVerifier] Incomplete — running silent correction: "${verdict.missing}"`);
+                    try {
+                        const corrMsgs = this.buildMessages(this.buildSystemPrompt(verdict.missing, this.iterations), this.iterations);
+                        corrMsgs.push({ role: 'user', content: verdict.missing });
+                        const correction = await this.adapter.complete({
+                            model: this.config.model, messages: corrMsgs, maxTokens: maxCompletionTokens
+                        });
+                        if (correction.content) {
+                            this.context.turns.push({
+                                role: 'assistant', content: correction.content,
+                                tokenCount: correction.usage?.completionTokens ?? this.adapter.estimateTokens(correction.content),
+                                turnIndex: this.context.turns.length, compressed: false
+                            });
+                        }
+                    } catch (err: unknown) {
+                        this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${(err as Error).message}`);
+                    }
+                }
+            }
+
+            this.logger.info(`[stream] Streaming run completed`);
+            return;
+        }
+
+        throw new LemuraMaxIterationsError(`Exceeded max iterations of ${maxIts}`);
+    }
+
+    /**
+     * Core ReAct execution loop shared by `run()` and `stream()`.
+     *
+     * Uses `adapter.complete()` exclusively — no streaming occurs here.
+     * Goal verification and silent corrections run inside this method,
+     * fully isolated from the caller's delivery path.
+     *
+     * @returns The final assistant response string
+     * @throws {LemuraMaxIterationsError} When the loop exceeds `maxIterations`
+     */
+    private async _executeLoop(
+        userMessage: string | ContentBlock[],
+        opts: { label: string }
+    ): Promise<string> {
+        const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
+        this.logger.info(`Starting new session run`, {
+            model: this.config.model,
+            message: userMessageStr
+        });
+
+        // Goal injector: initialise on first run if enableGoalPlanning and no manual goal set
+        if (this.config.enableGoalPlanning && !this.goalInjector) {
+            this.goalInjector = new GoalInjector({
+                id: 'auto',
+                statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
+                decomposition: [],
+                successCriteria: ['The user request is fully answered'],
+                injectionFrequency: this.config.goalInjectionFrequency ?? 'always',
+                injectionPosition: this.config.goalInjectionPosition ?? 'system_prompt',
+            });
+            this.context.metadata['goal'] = this.goalInjector.getGoal();
+            this.logger.debug('Goal injector initialised (auto)');
+            this.emitTrace('planning', 'goal_init', {
+                statement: this.goalInjector.getGoal().statement,
+                criteria: this.goalInjector.getGoal().successCriteria
+            });
+            await this._runMiniPlanningStep(userMessageStr);
+        }
+
+        // Push user turn
+        this.context.turns.push({
+            role: 'user',
+            content: userMessage,
+            tokenCount: Array.isArray(userMessage)
+                ? userMessage.length * 50
+                : this.adapter.estimateTokens(userMessage),
+            turnIndex: this.context.turns.length,
+            compressed: false
+        });
+
+        const maxIts = this.config.maxIterations || 10;
+        this.iterations = 0;
+        this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
+        const maxCompletionTokens = this.config.maxCompletionTokens ?? 4_000;
+        let goalVerificationDone = false;
+
+        while (this.iterations < maxIts) {
+            this.iterations++;
+            this.logger.debug(`[${opts.label}] ReAct Iteration ${this.iterations}/${maxIts}`);
+
+            // Sync token count and compress if needed
+            this.context.tokenCount =
+                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
+                this.adapter.estimateTokens(this.context.systemPrompt || '');
+            this.context = await this.contextManager.prepare(this.context);
+
+            const systemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
+            const messages = this.buildMessages(systemPrompt, this.iterations);
+
+            // maxSteps guard — inject forced-conclusion prompt
+            if (this.stepCounter.isMaxReached()) {
+                this.logger.warn(`maxSteps (${this.config.maxSteps ?? 20}) reached — forcing final response`);
+                messages.push({
+                    role: 'system',
+                    content: this.stepCounter.getForcedConclusionPrompt() + '\n\n' + FinalResponseFormatter.getRequiredStructure()
+                });
+                this.emitTrace('planning', 'max_steps_reached', {
+                    maxSteps: this.config.maxSteps,
+                    currentSteps: this.stepCounter.count
+                });
+            }
+
+            // Call provider
+            this.logger.debug(`Calling provider adapter (${this.adapter.name})...`);
+            this.emitTrace('thinking', 'llm_call', {
+                model: this.config.model,
+                iteration: this.iterations,
+                totalTokens: this.totalTokens
+            }, null, null, 'running');
+
+            let response;
+            try {
+                response = await this.adapter.complete({
+                    model: this.config.model,
+                    messages,
+                    tools: this.stepCounter.isMaxReached() ? [] : this.toolRegistry.getAll(),
+                    maxTokens: maxCompletionTokens
+                });
+            } catch (err: unknown) {
+                const e = err as { problem?: string; hints?: string[]; message?: string };
+                const metadata = e.problem ? { problem: e.problem, hints: e.hints ?? [] } : {};
+                this.logger.fatal(`Provider call failed: ${e.message ?? String(err)}`, metadata);
+                this.emitTrace('error', 'llm_call_failed', { error: e.message ?? String(err) });
+                throw err;
+            }
+
+            if (response.usage) this.totalTokens += response.usage.totalTokens;
+            this.emitTrace('thinking', 'llm_call', {
+                model: this.config.model,
+                usage: response.usage,
+                totalTokens: this.totalTokens
+            }, null, response.content, 'done');
+
+            // Tool calls
+            if (response.finishReason === 'tool_call' && response.toolCalls) {
+                this.logger.info(`Assistant requested ${response.toolCalls.length} tool calls`, {
+                    tools: response.toolCalls.map(tc => tc.name)
+                });
+                this.stepCounter.increment(response.toolCalls.length);
+
+                const toolResults: Array<{ toolCallId: string; content: string }> = [];
+
+                if (this.config.parallelToolCalls) {
+                    const budget = this.config.toolExecutionBudget;
+                    const maxConcurrent = budget?.maxConcurrentCalls ?? response.toolCalls.length;
+
+                    for (let i = 0; i < response.toolCalls.length; i += maxConcurrent) {
+                        const batch: ToolCall[] = response.toolCalls.slice(i, i + maxConcurrent);
+
+                        const allowed: ToolCall[] = [];
+                        for (const tc of batch) {
+                            const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
+                            if (ok) allowed.push(tc);
+                            else this.emitTrace('budget', 'firewall_blocked', { toolName: tc.name });
+                        }
+
+                        this.emitTrace('planning', 'parallel_execution', {
+                            batchSize: allowed.length,
+                            totalInResponse: response.toolCalls.length
+                        });
+
+                        const batchResults = await Promise.all(
+                            allowed.map(async (tc: ToolCall) => {
+                                try {
+                                    const content = await this.executeSingleToolCall(tc);
+                                    return { toolCallId: tc.id, content };
+                                } catch (e: unknown) {
+                                    const msg = e instanceof Error ? e.message : String(e);
+                                    const isTimeout = e instanceof LemuraToolTimeoutError;
+                                    this.logger.error(`Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed'}: ${msg}`);
+                                    return { toolCallId: tc.id, content: `Error: ${msg}` };
+                                }
+                            })
+                        );
+                        toolResults.push(...batchResults);
+                    }
+                } else {
+                    for (const tc of response.toolCalls) {
+                        const ok = await this.passesFirewall(tc.name, tc.arguments, tc.id, toolResults);
+                        if (!ok) continue;
+
+                        try {
+                            const content = await this.executeSingleToolCall(tc);
+                            toolResults.push({ toolCallId: tc.id, content });
+                        } catch (e: unknown) {
+                            const msg = e instanceof Error ? e.message : String(e);
+                            const isTimeout = e instanceof LemuraToolTimeoutError;
+                            this.logger.error(`Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed'}: ${msg}`, {
+                                problem: `Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed to execute'}.`,
+                                hints: isTimeout
+                                    ? ['Increase toolRegistryTimeoutMs or optimise the tool implementation.']
+                                    : ['Check the tool parameters and ensure required services are running.']
+                            });
+                            toolResults.push({ toolCallId: tc.id, content: `Error: ${msg}` });
+                        }
                     }
                 }
 
@@ -1366,61 +1382,164 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 continue;
             }
 
-            // Final response — stream it
-            this.context.tokenCount =
-                this.context.turns.reduce((sum, t) => sum + t.tokenCount, 0) +
-                this.adapter.estimateTokens(this.context.systemPrompt || '');
-            this.context = await this.contextManager.prepare(this.context);
-            const finalSystemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
-            const finalMessages = this.buildMessages(finalSystemPrompt, this.iterations);
+            // Final / stop response
+            if (
+                response.finishReason === 'stop' ||
+                response.finishReason === 'max_tokens' ||
+                response.finishReason === 'error'
+            ) {
+                const finalTurn: Turn = {
+                    role: 'assistant',
+                    content: response.content,
+                    tokenCount: response.usage?.completionTokens ?? this.adapter.estimateTokens(response.content),
+                    turnIndex: this.context.turns.length,
+                    compressed: false
+                };
+                this.context.turns.push(finalTurn);
+                if (this.config.onTurn) this.config.onTurn(finalTurn);
 
-            let accumulated = '';
-            let finalFinishReason: CompletionChunk['finishReason'] = undefined;
-            let finalTokenCount = 0;
-
-            for await (const chunk of this.adapter.stream({
-                model: this.config.model,
-                messages: finalMessages,
-                maxTokens: maxCompletionTokens,
-                stream: true
-            })) {
-                if (chunk.delta) {
-                    accumulated += chunk.delta;
-                    finalTokenCount += Math.ceil(chunk.delta.length / 4);
-                    yield chunk.delta;
-                }
-                if (chunk.finished) {
-                    finalFinishReason = chunk.finishReason;
-                    if (chunk.usage) {
-                        this.totalTokens += chunk.usage.totalTokens;
+                // Goal verification — runs silently, result stored in context only
+                if (response.finishReason === 'stop' && !goalVerificationDone) {
+                    goalVerificationDone = true;
+                    const verdict = await this._verifyGoal(this.context.turns);
+                    if (verdict && !verdict.achieved && verdict.missing) {
+                        this.logger.info(`[GoalVerifier] Incomplete — running silent correction: "${verdict.missing}"`);
+                        try {
+                            const correctionMessages = this.buildMessages(
+                                this.buildSystemPrompt(verdict.missing, this.iterations),
+                                this.iterations
+                            );
+                            correctionMessages.push({ role: 'user', content: verdict.missing });
+                            const correction = await this.adapter.complete({
+                                model: this.config.model,
+                                messages: correctionMessages,
+                                maxTokens: maxCompletionTokens
+                            });
+                            if (correction.content) {
+                                this.context.turns.push({
+                                    role: 'assistant',
+                                    content: correction.content,
+                                    tokenCount: correction.usage?.completionTokens ?? this.adapter.estimateTokens(correction.content),
+                                    turnIndex: this.context.turns.length,
+                                    compressed: false
+                                });
+                            }
+                        } catch (err: unknown) {
+                            this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${(err as Error).message}`);
+                        }
                     }
-                    this.emitTrace('thinking', 'llm_stream_finished', {
-                        usage: chunk.usage,
-                        totalTokens: this.totalTokens,
-                        finishReason: chunk.finishReason
-                    });
                 }
-            }
 
-            const finalTurn: Turn = {
-                role: 'assistant',
-                content: accumulated,
-                tokenCount: finalTokenCount,
-                turnIndex: this.context.turns.length,
-                compressed: false
-            };
-            this.context.turns.push(finalTurn);
-            if (this.config.onTurn) this.config.onTurn(finalTurn);
-            this.logger.info(`[stream] Streaming run completed (finishReason: ${finalFinishReason ?? 'stop'})`);
-            return;
+                this.logger.info(`[${opts.label}] Run completed successfully`);
+                return response.content;
+            }
         }
 
         const maxItsErr = new LemuraMaxIterationsError(`Exceeded max iterations of ${maxIts}`);
         this.logger.fatal(maxItsErr.message, {
-            problem: 'The streaming agent loop exceeded its max iterations.',
-            hints: ['Increase maxIterations or reduce task complexity.']
+            problem: 'The agent entered an infinite loop or took too many steps to resolve the task.',
+            hints: [
+                'Increase maxIterations if the task is complex.',
+                'Check if tools are returning consistent results.'
+            ]
         });
         throw maxItsErr;
+    }
+
+    /**
+     * Verifies whether the goal was achieved after a `stop` finish.
+     *
+     * Priority:
+     * 1. `config.goalVerifier` callback (Option A — user-supplied)
+     * 2. Built-in LLM check against `successCriteria` (Option C — fallback)
+     *
+     * Returns `null` when verification is skipped (no goal, planning disabled, etc.).
+     *
+     * @since 1.5.0
+     */
+    private async _verifyGoal(turns: Turn[]): Promise<GoalVerifierResult | null> {
+        if (!this.config.enableGoalPlanning || !this.goalInjector) return null;
+        if (this.config.enableGoalVerification === false) return null;
+
+        const goal = this.goalInjector.getGoal();
+        if (!goal.statement) return null;
+
+        this.emitTrace('verification', 'goal_verification_start', { goalStatement: goal.statement });
+
+        try {
+            // Option A — user-supplied verifier takes priority
+            if (this.config.goalVerifier) {
+                const result = await this.config.goalVerifier(goal, turns);
+                this.emitTrace('verification', 'goal_verification_result', {
+                    achieved: result.achieved,
+                    reason: result.reason,
+                    missing: result.missing,
+                    source: 'custom'
+                });
+                return result;
+            }
+
+            // Option C — built-in LLM check only when successCriteria contains
+            // real user-defined criteria (not the generic auto-populated fallback)
+            const GENERIC_CRITERION = 'The user request is fully answered';
+            const meaningfulCriteria = goal.successCriteria?.filter(c => c !== GENERIC_CRITERION) ?? [];
+            if (meaningfulCriteria.length > 0) {
+                const recentTurns = turns.slice(-6).map(t => {
+                    const text = typeof t.content === 'string'
+                        ? t.content
+                        : JSON.stringify(t.content);
+                    return `[${t.role}]: ${text.slice(0, 400)}`;
+                }).join('\n\n');
+
+                const criteriaList = meaningfulCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n');
+
+                const response = await this.adapter.complete({
+                    model: this.config.model,
+                    temperature: 0,
+                    maxTokens: 256,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a strict goal-completion verifier. Respond ONLY with a valid JSON object — no markdown, no prose:\n{"achieved": true|false, "reason": "<short explanation>", "missing": "<what is still needed, or empty string>"}'
+                        },
+                        {
+                            role: 'user',
+                            content: `Goal: ${goal.statement}\n\nSuccess criteria:\n${criteriaList}\n\nRecent conversation:\n${recentTurns}\n\nWere ALL success criteria met?`
+                        }
+                    ]
+                });
+
+                let verdict: GoalVerifierResult | null = null;
+                try {
+                    const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        const parsed = JSON.parse(jsonMatch[0]) as { achieved?: unknown; reason?: unknown; missing?: unknown };
+                        verdict = {
+                            achieved: parsed.achieved === true,
+                            ...(typeof parsed.reason === 'string' && { reason: parsed.reason }),
+                            ...(typeof parsed.missing === 'string' && { missing: parsed.missing })
+                        };
+                    }
+                } catch {
+                    this.logger.warn('[GoalVerifier] Failed to parse built-in verifier response — skipping');
+                }
+
+                if (verdict) {
+                    this.emitTrace('verification', 'goal_verification_result', {
+                        achieved: verdict.achieved,
+                        reason: verdict.reason,
+                        missing: verdict.missing,
+                        source: 'built_in'
+                    });
+                    return verdict;
+                }
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`[GoalVerifier] Verification step failed (non-fatal): ${msg}`);
+        }
+
+        return null;
     }
 
     /**

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-05-27
+
+### Added
+
+- **`SessionManager.stream()`**: New `async *stream(userMessage)` method that runs the full ReAct loop (tool calls, goal verification, corrections) and then streams the final assistant response token-by-token as an `AsyncIterable<string>`. All tool use and verification completes before the first token is yielded, so callers always receive a clean, final response.
+
+- **`GoalVerifierResult` interface** (`src/types/agent.ts`): Return type for `goalVerifier` callbacks and the built-in LLM-based checker. Fields: `achieved: boolean`, `missing?: string` (injected as a follow-up user message when false), `reason?: string` (surfaced in trace events).
+
+- **`SessionConfig.goalVerifier`**: Optional user-supplied async callback `(goal: Goal, turns: Turn[]) => Promise<GoalVerifierResult> | GoalVerifierResult`. Called after the ReAct loop reaches a `stop` finish reason when `enableGoalPlanning` is `true`. Returning `{ achieved: false, missing: '...' }` injects a silent correction loop (capped at one retry). When omitted and `successCriteria` is non-empty, Lemura falls back to a built-in LLM check.
+
+- **`SessionConfig.enableGoalVerification`**: Boolean flag to opt out of post-run goal verification. Defaults to `true` when `enableGoalPlanning` is set. Set to `false` to skip the verifier step entirely without removing `enableGoalPlanning`.
+
+- **`SessionManager._executeLoop()`**: Internal refactor — `run()` and `stream()` now share a single `_executeLoop()` core that handles tool dispatch, goal injection, step budgets, and verification. Only the final-response step differs between the two public methods.
+
+- **`GoalVerification.test.ts`**: Unit tests covering the `goalVerifier` callback path, the built-in LLM verifier fallback, and the `enableGoalVerification: false` opt-out.
+
 ## [1.4.4] - 2026-05-21
 
 ### Added

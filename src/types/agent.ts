@@ -7,6 +7,8 @@ import { IRAGAdapter } from './rag.js';
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 import { MCPServerConfig } from './mcp.js';
 import { IScratchpadAdapter } from './storage.js';
+import type { Turn } from './context.js';
+import type { Goal } from '../agent/execution/GoalInjector.js';
 
 export interface ToolResponseEvaluation {
     relevanceScore: number;
@@ -73,6 +75,23 @@ export interface ToolExecutionBudget {
     maxConcurrentCalls?: number;
 }
 
+/**
+ * Result returned by a `goalVerifier` callback or the built-in `successCriteria` checker.
+ *
+ * @since 1.5.0
+ */
+export interface GoalVerifierResult {
+    /** Whether the original goal was fully achieved */
+    achieved: boolean;
+    /**
+     * When `achieved` is false, describes what is still missing.
+     * This text is injected as a follow-up user message to continue the loop.
+     */
+    missing?: string;
+    /** Short human-readable reason for the verdict — surfaced in trace events */
+    reason?: string;
+}
+
 /** Configuration for a lemura Session */
 export interface SessionConfig {
     /** The provider adapter to use */
@@ -134,6 +153,13 @@ export interface SessionConfig {
     continuationStrategy?: 'sequential' | 'parallel' | 'conditional';
     /** Enable goal planning */
     enableGoalPlanning?: boolean;
+    /**
+     * Enable post-run goal verification (Option A + C).
+     * When true, Lemura checks whether the goal was actually achieved after each stop.
+     * Requires `enableGoalPlanning` to also be true. Defaults to true.
+     * @since 1.5.0
+     */
+    enableGoalVerification?: boolean;
     goalInjectionFrequency?: 'always' | 'every_N_turns' | 'on_compression';
     goalInjectionPosition?: 'system_prompt' | 'pre_turn';
     /** Skill budget — max tokens the skill injection block may consume */
@@ -179,6 +205,28 @@ export interface SessionConfig {
 
     /** Callback for granular trace events (planning, budgets, tools, etc.) */
     onTrace?: (event: TraceEvent) => void;
+
+    /**
+     * Optional callback invoked after the ReAct loop reaches a `stop` finish reason.
+     *
+     * Return `{ achieved: false, missing: '...' }` to continue the loop with the
+     * missing work injected as a follow-up user message (capped at one retry).
+     * Return `{ achieved: true }` to stop normally.
+     *
+     * Only called when `enableGoalPlanning` is `true` and a goal statement exists.
+     * When omitted and `successCriteria` is non-empty, Lemura falls back to a
+     * built-in LLM-based check against those criteria.
+     *
+     * @since 1.5.0
+     * @example
+     * goalVerifier: async (goal, turns) => {
+     *   const last = turns.at(-1)?.content ?? '';
+     *   return last.includes('DONE')
+     *     ? { achieved: true }
+     *     : { achieved: false, missing: 'Final DONE marker not found in output' };
+     * }
+     */
+    goalVerifier?: (goal: Goal, turns: Turn[]) => Promise<GoalVerifierResult> | GoalVerifierResult;
 
     /**
      * MCP (Model Context Protocol) server configurations.

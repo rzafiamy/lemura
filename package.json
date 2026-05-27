@@ -1,6 +1,6 @@
 {
   "name": "lemura",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "description": "Provider-agnostic agentic AI runtime",
   "license": "MIT",
   "author": "rzafiamy",

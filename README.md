@@ -86,6 +86,11 @@ async function main() {
 
   const response = await session.run('What is lemura?');
   console.log(response);
+
+  // Or stream the final response token-by-token
+  for await (const token of session.stream('What is lemura?')) {
+    process.stdout.write(token);
+  }
 }
 
 main();
