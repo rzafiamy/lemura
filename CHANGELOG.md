@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-05-29
+
+### Added
+
+- **`SessionConfig.staticSystemPrompt`**: New boolean flag that freezes the system prompt across all ReAct iterations and redirects dynamic content (continuation plan status, goal injection) into the last user/tool message instead. This keeps the KV-cache prefix 100% stable between turns, avoiding costly re-computation on every iteration. Recommended for reasoning models and long agentic runs.
+
+- **`IToolDefinition.timeoutMs`**: Optional per-tool timeout field on tool definitions. Falls back to `ToolRegistry.defaultTimeoutMs` when omitted, allowing individual tools to override the global timeout without touching `SessionConfig`.
+
+- **`ToolRegistry` execution timing**: `execute()` now logs the elapsed time for every tool call (debug on success, error on timeout/failure), making it easier to identify slow tools.
+
+- **`MCPClient` call timing and structured error logging**: `callTool()` now records elapsed time and emits structured error logs (with `problem` and `hints` fields) on timeout, mirroring `ToolRegistry`'s diagnostic output.
+
+### Fixed
+
+- **`OpenAICompatibleAdapter` reasoning-model compatibility**: `buildPayload()` now detects o1/o3/o4/gpt-5 and `*-mini` models via `isReasoningModel()` and uses `max_completion_tokens` instead of `max_tokens`, while omitting unsupported sampling params (`temperature`, `top_p`, etc.). This prevents API errors when targeting OpenAI reasoning models.
+
+- **Mini-planning JSON extraction**: The planner now applies a regex fallback (`/\{[\s\S]*\}/`) after stripping code fences, so model responses that wrap the JSON object in prose no longer throw a parse error.
+
+- **Goal-correction trace events**: `goal_correction_start`, `goal_correction_done`, and `goal_correction_failed` trace events are now emitted in both the `run()` and `stream()` paths (previously missing in `stream()`).
+
+- **Post-correction final verification**: After a silent goal-correction loop, the verifier now re-checks the goal. If it is still unmet, a `goal_verification_result` trace event is emitted and a visible warning block is appended to the last assistant turn (in both `run()` and `stream()`).
+
+- **Tool error trace events**: `tool_timeout` and `tool_error` trace events are now emitted for every tool failure in the parallel and sequential dispatch paths.
+
+- **`ToolRegistry` timeout resolution**: Per-tool `timeoutMs` is now read via `tool.timeoutMs` (typed field) instead of an unsafe `Record<string, unknown>` cast.
+
 ## [1.5.0] - 2026-05-27
 
 ### Added

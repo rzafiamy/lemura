@@ -117,7 +117,31 @@ export class MCPClient {
             params: { name: toolName, arguments: args }
         };
 
-        const response = await this._rpc(request);
+        const startMs = Date.now();
+        let response: MCPJsonRpcResponse;
+        try {
+            response = await this._rpc(request);
+        } catch (err: unknown) {
+            const elapsedMs = Date.now() - startMs;
+            if (err instanceof LemuraMCPTimeoutError) {
+                this.logger.error(
+                    `[MCP:${this._serverName}] Tool '${toolName}' timed out after ${elapsedMs}ms (limit: ${this.timeoutMs}ms)`,
+                    {
+                        problem: `MCP server '${this._serverName}' did not respond to tool '${toolName}' in time.`,
+                        hints: [
+                            `Increase 'timeoutMs' in the MCPServerConfig for '${this._serverName}' (currently ${this.timeoutMs}ms).`,
+                            `Check whether the MCP server process is healthy and not blocked.`
+                        ]
+                    }
+                );
+            } else {
+                this.logger.error(
+                    `[MCP:${this._serverName}] Tool '${toolName}' RPC failed after ${elapsedMs}ms: ${(err as Error).message}`
+                );
+            }
+            throw err;
+        }
+        this.logger.debug(`[MCP:${this._serverName}] Tool '${toolName}' completed in ${Date.now() - startMs}ms`);
         this._assertNoError(response, `tool '${toolName}'`);
 
         // MCP spec: result.content is an array of content blocks

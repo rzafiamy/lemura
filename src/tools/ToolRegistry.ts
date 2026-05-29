@@ -108,9 +108,9 @@ export class ToolRegistry {
         }
 
         // --- Timeout enforcement ---
-        const toolTimeoutMs = (tool as unknown as Record<string, unknown>)['timeoutMs'];
-        const timeoutMs: number = typeof toolTimeoutMs === 'number' ? toolTimeoutMs : this.defaultTimeoutMs;
+        const timeoutMs: number = tool.timeoutMs ?? this.defaultTimeoutMs;
 
+        const startMs = Date.now();
         const executionPromise = tool.execute(params, context);
 
         const timeoutPromise = new Promise<never>((_, reject) => {
@@ -123,12 +123,26 @@ export class ToolRegistry {
         });
 
         try {
-            return await Promise.race([executionPromise, timeoutPromise]);
+            const result = await Promise.race([executionPromise, timeoutPromise]);
+            context.logger.debug(`Tool '${name}' completed in ${Date.now() - startMs}ms`);
+            return result;
         } catch (err: unknown) {
-            if (err instanceof LemuraToolValidationError || err instanceof LemuraToolTimeoutError) {
+            const elapsedMs = Date.now() - startMs;
+            if (err instanceof LemuraToolTimeoutError) {
+                context.logger.error(`Tool '${name}' timed out after ${elapsedMs}ms (limit: ${timeoutMs}ms)`, {
+                    problem: `Tool '${name}' did not respond within its timeout.`,
+                    hints: [
+                        `Increase the tool's timeoutMs (currently ${timeoutMs}ms) or optimise its implementation.`,
+                        `Check whether the external service the tool depends on is healthy.`
+                    ]
+                });
+                throw err;
+            }
+            if (err instanceof LemuraToolValidationError) {
                 throw err;
             }
             const message = err instanceof Error ? err.message : String(err);
+            context.logger.error(`Tool '${name}' failed after ${elapsedMs}ms: ${message}`);
             throw new LemuraToolValidationError(
                 `Tool '${name}' execution failed: ${message}`
             );

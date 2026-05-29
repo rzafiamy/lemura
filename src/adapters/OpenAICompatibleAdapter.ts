@@ -204,13 +204,34 @@ export class OpenAICompatibleAdapter implements IProviderAdapter {
         });
     }
 
+    /**
+     * Returns true for reasoning/o-series models (o1, o3, o4, gpt-5, *-mini variants).
+     * These models use `max_completion_tokens` instead of `max_tokens` and do not
+     * support sampling hyperparameters (temperature, top_p, presence_penalty, frequency_penalty).
+     */
+    private isReasoningModel(model: string): boolean {
+        return /\bo[1-9]\b|\bo[1-9]-|\bgpt-5\b|(?:^|[-_])mini(?:$|[-_])/i.test(model);
+    }
+
     private buildPayload(request: CompletionRequest): unknown {
+        const model = request.model || this.defaultModel;
+        const reasoning = this.isReasoningModel(model);
+
         const payload: Record<string, unknown> = {
-            model: request.model || this.defaultModel,
+            model,
             messages: this.toOpenAIMessages(request.messages),
         };
-        if (request.maxTokens !== undefined) payload.max_tokens = request.maxTokens;
-        if (request.temperature !== undefined) payload.temperature = request.temperature;
+
+        if (request.maxTokens !== undefined) {
+            // Reasoning models require max_completion_tokens; standard models use max_tokens
+            payload[reasoning ? 'max_completion_tokens' : 'max_tokens'] = request.maxTokens;
+        }
+
+        if (!reasoning) {
+            // Sampling params are unsupported on reasoning models — omit entirely to avoid API errors
+            if (request.temperature !== undefined) payload.temperature = request.temperature;
+        }
+
         if (request.stopSequences?.length) payload.stop = request.stopSequences;
         if (request.stream) payload.stream = true;
 

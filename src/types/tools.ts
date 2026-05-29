@@ -20,5 +20,7 @@ export interface IToolDefinition {
     name: string;
     description: string;
     parameters: Record<string, unknown>; // JSON Schema
+    /** Per-call timeout in milliseconds. Falls back to ToolRegistry.defaultTimeoutMs when omitted. */
+    timeoutMs?: number;
     execute(params: unknown, context: ToolContext): Promise<unknown>;
 }

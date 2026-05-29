@@ -76,6 +76,8 @@ export class SessionManager {
     private toolResponseProcessor: ToolResponseProcessor;
     private goalInjector: GoalInjector | null = null;
     private continuationPlanner: ContinuationPlanner | null = null;
+    /** Frozen goal/plan injection text keyed by turn index — used when staticSystemPrompt is on */
+    private _turnInjections: Map<number, string> = new Map();
 
     // MCP
     private mcpRegistry: MCPClientRegistry | null = null;
@@ -528,9 +530,14 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 maxTokens: this.config.maxCompletionTokens ?? 4_000,
             });
 
-            // Parse JSON from the response (tolerate code fences)
-            const raw = response.content.replace(/```json|```/g, '').trim();
-            const parsed = JSON.parse(raw) as { subGoals?: string[]; successCriteria?: string[] };
+            // Parse JSON — strip code fences first, then fall back to regex extraction
+            // in case the model wraps the object in prose
+            const stripped = response.content.replace(/```json|```/g, '').trim();
+            const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                throw new Error(`No JSON object found in mini-planning response: "${stripped.slice(0, 200)}"`);
+            }
+            const parsed = JSON.parse(jsonMatch[0]) as { subGoals?: string[]; successCriteria?: string[] };
 
             if (this.goalInjector && Array.isArray(parsed.subGoals)) {
                 this.goalInjector.updateDecomposition(
@@ -558,8 +565,14 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     private buildSystemPrompt(userMessage?: string, iteration: number = 0): string {
         let prompt = this.context.systemPrompt || '';
 
+        // When staticSystemPrompt is enabled the system prompt must never vary between
+        // iterations — this keeps the KV-cache prefix 100% stable and avoids costly
+        // re-computation on every turn. Continuation plan status is therefore injected
+        // into the *last user message* by buildMessages instead.
+        const isStatic = this.config.staticSystemPrompt === true;
+
         // Inject goal into system prompt (when position === 'system_prompt')
-        if (this.goalInjector && this.config.goalInjectionPosition !== 'pre_turn') {
+        if (!isStatic && this.goalInjector && this.config.goalInjectionPosition !== 'pre_turn') {
             const shouldInject = this.goalInjector.shouldInjectThisTurn(
                 iteration,
                 false,
@@ -574,8 +587,8 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             }
         }
 
-        // Inject continuation plan status block
-        if (this.continuationPlanner && this.config.enableContinuationPlanning) {
+        // Inject continuation plan status block (skipped when staticSystemPrompt is on)
+        if (!isStatic && this.continuationPlanner && this.config.enableContinuationPlanning) {
             const planStatus = this.continuationPlanner.getPlanStatusString();
             prompt += `\n\n${planStatus}`;
         }
@@ -605,7 +618,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         }
 
         // pre_turn goal injection — injects as a system message just before the last user turn
-        if (this.goalInjector && this.config.goalInjectionPosition === 'pre_turn') {
+        if (!this.config.staticSystemPrompt && this.goalInjector && this.config.goalInjectionPosition === 'pre_turn') {
             const shouldInject = this.goalInjector.shouldInjectThisTurn(
                 iteration,
                 false,
@@ -615,6 +628,62 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 const goalBlock = this.goalInjector.getFormattedBlock();
                 messages.push({ role: 'system', content: goalBlock });
                 this.emitTrace('planning', 'goal_injected', { position: 'pre_turn', iteration });
+            }
+        }
+
+        // KV-cache frozen turn injections — only active when staticSystemPrompt is on.
+        // Dynamic content (goal state, continuation plan) is appended exclusively to the
+        // *latest* user/tool message so older turns are never mutated between iterations,
+        // keeping their token prefix identical and allowing the provider to reuse cached KV.
+        if (this.config.staticSystemPrompt) {
+            const totalTurns = this.context.turns.length;
+            for (let i = 0; i < totalTurns; i++) {
+                const msgIndex = i + 1; // messages[0] is the system prompt
+                if (msgIndex >= messages.length) continue;
+                const msg = messages[msgIndex]!;
+                if (msg.role !== 'user' && msg.role !== 'tool') continue;
+
+                let injectionBlock: string;
+
+                if (i === totalTurns - 1) {
+                    // Latest turn — generate fresh dynamic content
+                    const blocks: string[] = [];
+                    if (this.goalInjector) {
+                        const shouldInject = this.goalInjector.shouldInjectThisTurn(
+                            iteration, false, this.config.goalInjectionN ?? 3
+                        );
+                        if (shouldInject) blocks.push(this.goalInjector.getFormattedBlock());
+                    }
+                    if (this.continuationPlanner && this.config.enableContinuationPlanning) {
+                        blocks.push(this.continuationPlanner.getPlanStatusString());
+                    }
+                    injectionBlock = blocks.length > 0
+                        ? `\n\n[System Guidance / Agent State]\n${blocks.join('\n\n')}`
+                        : '';
+                    this._turnInjections.set(i, injectionBlock);
+                    if (injectionBlock) {
+                        this.emitTrace('planning', 'goal_injected', { position: 'frozen_turn', turnIndex: i, iteration });
+                    }
+                } else {
+                    // Past turn — replay the frozen block so token prefix never changes
+                    injectionBlock = this._turnInjections.get(i) ?? '';
+                }
+
+                if (!injectionBlock) continue;
+
+                // Shallow-copy the message to avoid mutating context turns
+                if (Array.isArray(msg.content)) {
+                    messages[msgIndex] = {
+                        ...msg,
+                        content: msg.content.map(item =>
+                            (item as { type?: string; text?: string }).type === 'text'
+                                ? { ...(item as object), text: (item as { text: string }).text + injectionBlock }
+                                : item
+                        )
+                    } as NormalizedMessage;
+                } else {
+                    messages[msgIndex] = { ...msg, content: ((msg.content as string) ?? '') + injectionBlock } as NormalizedMessage;
+                }
             }
         }
 
@@ -1150,6 +1219,10 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 const verdict = await this._verifyGoal(this.context.turns);
                 if (verdict && !verdict.achieved && verdict.missing) {
                     this.logger.info(`[GoalVerifier] Incomplete — running silent correction: "${verdict.missing}"`);
+                    this.emitTrace('verification', 'goal_correction_start', {
+                        missing: verdict.missing,
+                        reason: verdict.reason
+                    });
                     try {
                         const corrMsgs = this.buildMessages(this.buildSystemPrompt(verdict.missing, this.iterations), this.iterations);
                         corrMsgs.push({ role: 'user', content: verdict.missing });
@@ -1162,9 +1235,28 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                                 tokenCount: correction.usage?.completionTokens ?? this.adapter.estimateTokens(correction.content),
                                 turnIndex: this.context.turns.length, compressed: false
                             });
+                            this.emitTrace('verification', 'goal_correction_done', {
+                                missing: verdict.missing,
+                                correctionTokens: correction.usage?.completionTokens
+                            });
                         }
                     } catch (err: unknown) {
-                        this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${(err as Error).message}`);
+                        const errMsg = (err as Error).message;
+                        this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${errMsg}`);
+                        this.emitTrace('error', 'goal_correction_failed', { error: errMsg }, null, null, 'error');
+                    }
+
+                    // Final check after correction — surface a visible warning in the stream if still unmet
+                    const finalVerdict = await this._verifyGoal(this.context.turns);
+                    if (finalVerdict && !finalVerdict.achieved) {
+                        this.logger.warn(`[GoalVerifier] Final verification failed: ${finalVerdict.reason}`);
+                        this.emitTrace('verification', 'goal_verification_result', {
+                            achieved: false, reason: finalVerdict.reason, missing: finalVerdict.missing
+                        }, null, null, 'error');
+                        const warningBlock = `\n\n---\n\n⚠️ **Goal Verification Warning**\n* **Status:** Success criteria not fully met.\n* **Reason:** ${finalVerdict.reason ?? 'Unknown'}\n* **Missing:** ${finalVerdict.missing ?? 'Not specified'}\n\n`;
+                        yield warningBlock;
+                        const lastTurn = [...this.context.turns].reverse().find(t => t.role === 'assistant');
+                        if (lastTurn) lastTurn.content = (lastTurn.content as string) + warningBlock;
                     }
                 }
             }
@@ -1326,6 +1418,10 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                                     const msg = e instanceof Error ? e.message : String(e);
                                     const isTimeout = e instanceof LemuraToolTimeoutError;
                                     this.logger.error(`Tool ${tc.name} ${isTimeout ? 'timed out' : 'failed'}: ${msg}`);
+                                    this.emitTrace('error', isTimeout ? 'tool_timeout' : 'tool_error', {
+                                        toolName: tc.name, id: tc.id, error: msg,
+                                        timeoutMs: isTimeout ? (this.config.toolRegistryTimeoutMs ?? 30_000) : undefined
+                                    }, null, null, 'error');
                                     return { toolCallId: tc.id, content: `Error: ${msg}` };
                                 }
                             })
@@ -1349,6 +1445,10 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                                     ? ['Increase toolRegistryTimeoutMs or optimise the tool implementation.']
                                     : ['Check the tool parameters and ensure required services are running.']
                             });
+                            this.emitTrace('error', isTimeout ? 'tool_timeout' : 'tool_error', {
+                                toolName: tc.name, id: tc.id, error: msg,
+                                timeoutMs: isTimeout ? (this.config.toolRegistryTimeoutMs ?? 30_000) : undefined
+                            }, null, null, 'error');
                             toolResults.push({ toolCallId: tc.id, content: `Error: ${msg}` });
                         }
                     }
@@ -1404,6 +1504,10 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                     const verdict = await this._verifyGoal(this.context.turns);
                     if (verdict && !verdict.achieved && verdict.missing) {
                         this.logger.info(`[GoalVerifier] Incomplete — running silent correction: "${verdict.missing}"`);
+                        this.emitTrace('verification', 'goal_correction_start', {
+                            missing: verdict.missing,
+                            reason: verdict.reason
+                        });
                         try {
                             const correctionMessages = this.buildMessages(
                                 this.buildSystemPrompt(verdict.missing, this.iterations),
@@ -1423,10 +1527,30 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                                     turnIndex: this.context.turns.length,
                                     compressed: false
                                 });
+                                this.emitTrace('verification', 'goal_correction_done', {
+                                    missing: verdict.missing,
+                                    correctionTokens: correction.usage?.completionTokens
+                                });
                             }
                         } catch (err: unknown) {
-                            this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${(err as Error).message}`);
+                            const errMsg = (err as Error).message;
+                            this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${errMsg}`);
+                            this.emitTrace('error', 'goal_correction_failed', { error: errMsg }, null, null, 'error');
                         }
+                    }
+
+                    // Final check after correction — append warning block to content if goal still unmet
+                    const finalVerdict = await this._verifyGoal(this.context.turns);
+                    if (finalVerdict && !finalVerdict.achieved) {
+                        this.logger.warn(`[GoalVerifier] Final verification failed: ${finalVerdict.reason}`);
+                        this.emitTrace('verification', 'goal_verification_result', {
+                            achieved: false, reason: finalVerdict.reason, missing: finalVerdict.missing
+                        }, null, null, 'error');
+                        const warningBlock = `\n\n---\n\n⚠️ **Goal Verification Warning**\n* **Status:** Success criteria not fully met.\n* **Reason:** ${finalVerdict.reason ?? 'Unknown'}\n* **Missing:** ${finalVerdict.missing ?? 'Not specified'}\n\n`;
+                        const lastTurn = [...this.context.turns].reverse().find(t => t.role === 'assistant');
+                        if (lastTurn) lastTurn.content = (lastTurn.content as string) + warningBlock;
+                        this.logger.info(`[${opts.label}] Run completed with goal warning`);
+                        return (lastTurn?.content as string) ?? response.content;
                     }
                 }
 

@@ -203,6 +203,15 @@ export interface SessionConfig {
      */
     toolRegistryTimeoutMs?: number;
 
+    /**
+     * When true, the system prompt is built once and kept identical across all
+     * ReAct iterations. Dynamic content (continuation plan, per-turn goal injection)
+     * is moved to the last user/tool message instead, so the KV-cache prefix is
+     * never invalidated. Recommended for reasoning models and long agentic runs.
+     * @default false
+     */
+    staticSystemPrompt?: boolean;
+
     /** Callback for granular trace events (planning, budgets, tools, etc.) */
     onTrace?: (event: TraceEvent) => void;
 
