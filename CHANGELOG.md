@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-05-30
+
+### Fixed
+
+- **Tool firewall `ask` decision could execute denied tools** (critical): when a `ToolFirewallConfig.onAsk` handler returned anything other than the exact string `'deny'` — including the boolean `false`, `undefined`, or by throwing — the tool was executed anyway. A user pressing "Stop"/deny could not actually stop the tool call. The `ask` path is now **fail-safe**: only an explicit accept signal (`'accept'` or `true`) allows execution; `'deny'`, `false`, `undefined`, `void`, and thrown errors all block the tool and inject a `Blocked by tool firewall` observation.
+  - `ToolFirewallConfig.onAsk` now accepts `'accept' | 'deny' | boolean | void` (and the `Promise` thereof) for ergonomics. The previous `'accept' | 'deny'` return remains valid.
+
 ## [1.5.2] - 2026-05-30
 
 ### Changed

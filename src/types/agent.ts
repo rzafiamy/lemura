@@ -51,9 +51,22 @@ export interface ToolFirewallConfig {
     rules?: ToolFirewallRule[];
     /**
      * Called when a tool hits the 'ask' decision.
-     * Return 'accept' or 'deny'. If omitted, 'ask' behaves like 'deny'.
+     *
+     * Return `'accept'` (or `true`) to allow the tool to run; return `'deny'`
+     * (or `false`) to block it. The decision is **fail-safe**: only an explicit
+     * accept signal allows execution — any other value (`'deny'`, `false`,
+     * `undefined`, `null`, a thrown error) blocks the tool. If `onAsk` is
+     * omitted entirely, an `'ask'` decision behaves like `'deny'`.
      */
-    onAsk?: (toolName: string, argsJson: string) => Promise<'accept' | 'deny'> | 'accept' | 'deny';
+    onAsk?: (
+        toolName: string,
+        argsJson: string
+    ) =>
+        | Promise<'accept' | 'deny' | boolean | void>
+        | 'accept'
+        | 'deny'
+        | boolean
+        | void;
 }
 
 /**

@@ -841,13 +841,26 @@ Respond ONLY with valid JSON (no markdown, no explanations):
 
         if (firewall.decision === 'ask') {
             if (this.config.toolFirewall?.onAsk) {
-                const userDecision = await this.config.toolFirewall.onAsk(toolName, argsJson);
-                if (userDecision === 'deny') {
+                // Fail-safe: only an explicit accept signal ('accept' or true) allows
+                // execution. Any other value — 'deny', false, undefined, void, or a
+                // thrown error — blocks the tool. This guarantees a user's "deny"/Stop
+                // can never fall through to executing the tool anyway.
+                let accepted = false;
+                try {
+                    const userDecision = await this.config.toolFirewall.onAsk(toolName, argsJson);
+                    accepted = userDecision === 'accept' || userDecision === true;
+                } catch (e: unknown) {
+                    this.logger.warn(`Tool firewall onAsk handler threw — treating as deny: ${toolName}`, {
+                        error: e instanceof Error ? e.message : String(e)
+                    });
+                    accepted = false;
+                }
+                if (!accepted) {
                     this.logger.warn(`Tool blocked by firewall (ask → deny): ${toolName}`, { reason: firewall.reason });
                     toolResults.push({ toolCallId, content: `Blocked by tool firewall: ${firewall.reason}` });
                     return false;
                 }
-                // accept falls through
+                // accepted falls through
             } else {
                 this.logger.warn(`Tool blocked by firewall (ask without handler): ${toolName}`, { reason: firewall.reason });
                 toolResults.push({ toolCallId, content: `Blocked by tool firewall: ${firewall.reason}` });
