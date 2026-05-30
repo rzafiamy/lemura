@@ -185,7 +185,7 @@ export class SkillInjector {
             if (!content) continue;
 
             const tierLabel = skill.tier ?? 'standard';
-            const skillEntry = `\n[Skill: ${skill.name} (Tier: ${tierLabel})]\n${content}\n`;
+            const skillEntry = `\n<lemura:skill name="${skill.name}" tier="${tierLabel}">\n${content}\n</lemura:skill>\n`;
 
             // Approximate token count (4 chars ≈ 1 token)
             const skillTokens = Math.ceil(skillEntry.length / 4);

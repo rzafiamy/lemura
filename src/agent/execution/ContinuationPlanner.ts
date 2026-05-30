@@ -137,14 +137,17 @@ export class ContinuationPlanner {
 
     /** Returns a human-readable status string with icons (injected before each iteration) */
     getPlanStatusString(): string {
-        let result = `[CONTINUATION PLAN — Step ${this.plan.currentStepIndex + 1}/${this.plan.steps.length}]\n`;
+        const current = this.plan.currentStepIndex + 1;
+        const total = this.plan.steps.length;
+        let result = `<lemura:plan step="${current}" total="${total}">\n`;
         for (const step of this.plan.steps) {
             const icon = this._icon(step.status);
             const statusText = step.status === 'pending' && step.dependsOn.length > 0
                 ? `Waiting on Step ${step.dependsOn.join(', ')}`
                 : step.status.charAt(0).toUpperCase() + step.status.slice(1);
-            result += `${icon} Step ${step.stepId} (${step.toolName}): ${statusText}\n`;
+            result += `<lemura:step id="${step.stepId}" tool="${step.toolName}" status="${step.status}">${icon} ${statusText}</lemura:step>\n`;
         }
+        result += '</lemura:plan>';
         return result;
     }
 

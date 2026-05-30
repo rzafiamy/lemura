@@ -658,7 +658,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                         blocks.push(this.continuationPlanner.getPlanStatusString());
                     }
                     injectionBlock = blocks.length > 0
-                        ? `\n\n[System Guidance / Agent State]\n${blocks.join('\n\n')}`
+                        ? `\n\n<lemura:agent-state>\n${blocks.join('\n\n')}\n</lemura:agent-state>`
                         : '';
                     this._turnInjections.set(i, injectionBlock);
                     if (injectionBlock) {

@@ -30,7 +30,7 @@ export class GoalInjector {
     }
 
     /**
-     * Returns the formatted `[CURRENT GOAL]` block string — without caring about
+     * Returns the formatted `<lemura:goal>` block string — without caring about
      * where it will be placed. Callers decide whether to append to a system prompt
      * or push as a separate message.
      */
@@ -40,21 +40,21 @@ export class GoalInjector {
         const pending = decomposition.filter(sg => !completedSubGoals.includes(sg));
         const completed = decomposition.filter(sg => completedSubGoals.includes(sg));
 
-        let block = `[CURRENT GOAL]\n${statement}\n`;
+        let block = `<lemura:goal>\n<lemura:statement>${statement}</lemura:statement>\n`;
 
         if (successCriteria.length > 0) {
-            block += `\nSuccess criteria:\n${successCriteria.map(c => `- ${c}`).join('\n')}`;
+            block += `<lemura:criteria>\n${successCriteria.map(c => `- ${c}`).join('\n')}\n</lemura:criteria>\n`;
         }
 
         if (pending.length > 0) {
-            block += `\n\nSub-goals remaining:\n${pending.map(sg => `- ${sg} ← pending`).join('\n')}`;
+            block += `<lemura:subgoals status="pending">\n${pending.map(sg => `- ${sg}`).join('\n')}\n</lemura:subgoals>\n`;
         }
 
         if (completed.length > 0) {
-            block += `\n\nSub-goals completed:\n${completed.map(sg => `- ✅ ${sg}`).join('\n')}`;
+            block += `<lemura:subgoals status="done">\n${completed.map(sg => `- ✅ ${sg}`).join('\n')}\n</lemura:subgoals>\n`;
         }
 
-        block += '\n[/CURRENT GOAL]';
+        block += '</lemura:goal>';
         return block;
     }
 
