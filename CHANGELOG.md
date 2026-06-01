@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-06-01
+
+### Fixed
+
+- **Duplicated response in `stream()` during goal correction** (significant): `stream()` yielded the model's first answer to the caller *live*, then ran goal verification *afterwards*. When the verifier returned `achieved: false` and a correction re-entry followed, the corrected answer was streamed immediately after the already-emitted first answer — surfacing both as one duplicated response (contradicting the documented "delivers only the clean final response" contract). The final response is now **buffered** until verification settles; a rejected attempt is silently discarded and corrected, so the stream emits only the single approved answer. `run()` was unaffected (it already buffered).
+
 ## [1.5.4] - 2026-05-30
 
 ### Fixed
