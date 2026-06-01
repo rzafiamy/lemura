@@ -66,9 +66,54 @@ describe('Goal Verification', () => {
         });
 
         const result = await session.run('Write code with tests');
+        // First verdict (achieved=false, missing) re-enters the loop with a corrective
+        // turn; the second model response is produced and re-verified (achieved=true).
         expect(result).toBe('Complete work');
-        // Verifier called once (cap is 1 retry — second stop has goalVerificationDone=true)
+        // Verifier called twice: once after the initial stop, once after the correction.
+        expect(verifier).toHaveBeenCalledTimes(2);
+    });
+
+    it('(A) persistently-incomplete goal — re-enters once then surfaces a warning', async () => {
+        const adapter = makeMockAdapter([
+            { content: 'Partial work', finishReason: 'stop' },
+            { content: 'Still partial', finishReason: 'stop' }
+        ]);
+        const verifier = vi.fn<(goal: Goal, turns: Turn[]) => GoalVerifierResult>()
+            .mockReturnValue({ achieved: false, missing: 'Tests were not written', reason: 'Missing tests' });
+
+        const session = new SessionManager({
+            adapter,
+            model: 'mock-v1',
+            maxTokens: 500,
+            enableGoalPlanning: true,
+            maxGoalCorrections: 1,
+            goalVerifier: verifier
+        });
+
+        const result = await session.run('Write code with tests');
+        // One corrective re-entry (budget=1), then budget exhausted → warning appended.
+        expect(verifier).toHaveBeenCalledTimes(2);
+        expect(result).toContain('Goal Verification Warning');
+        expect(result).toContain('Tests were not written');
+    });
+
+    it('(A) maxGoalCorrections=0 disables re-entry — warning on first incomplete verdict', async () => {
+        const adapter = makeMockAdapter([{ content: 'Partial work', finishReason: 'stop' }]);
+        const verifier = vi.fn<(goal: Goal, turns: Turn[]) => GoalVerifierResult>()
+            .mockReturnValue({ achieved: false, missing: 'Tests were not written', reason: 'Missing tests' });
+
+        const session = new SessionManager({
+            adapter,
+            model: 'mock-v1',
+            maxTokens: 500,
+            enableGoalPlanning: true,
+            maxGoalCorrections: 0,
+            goalVerifier: verifier
+        });
+
+        const result = await session.run('Write code with tests');
         expect(verifier).toHaveBeenCalledOnce();
+        expect(result).toContain('Goal Verification Warning');
     });
 
     it('(C) built-in successCriteria check fires when no custom verifier given', async () => {

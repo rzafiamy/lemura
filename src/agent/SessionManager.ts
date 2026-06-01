@@ -557,6 +557,62 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         }
     }
 
+    /**
+     * Reconciles sub-goal completion against the recent conversation so the
+     * re-injected goal block reflects real progress (anti-drift). Runs only when
+     * `goalProgressReconciliation` is enabled, and is a no-op when there are no
+     * pending sub-goals. One small, non-fatal LLM call; failures are swallowed.
+     *
+     * @since 1.5.4
+     */
+    private async _reconcileSubGoals(): Promise<void> {
+        if (!this.config.goalProgressReconciliation) return;
+        if (!this.goalInjector) return;
+
+        const goal = this.goalInjector.getGoal();
+        const completed = new Set(goal.completedSubGoals ?? []);
+        const pending = (goal.decomposition ?? []).filter(sg => !completed.has(sg));
+        if (pending.length === 0) return;
+
+        const recentTurns = this.context.turns.slice(-6).map(t => {
+            const text = typeof t.content === 'string' ? t.content : JSON.stringify(t.content);
+            return `[${t.role}]: ${text.slice(0, 400)}`;
+        }).join('\n\n');
+        const pendingList = pending.map((sg, i) => `${i + 1}. ${sg}`).join('\n');
+
+        try {
+            const response = await this.adapter.complete({
+                model: this.config.model,
+                temperature: 0,
+                maxTokens: 256,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You track sub-goal progress. Given pending sub-goals and the recent conversation, return ONLY the 1-based indices of sub-goals that are now fully completed. Respond with valid JSON only, no prose: {"completed": number[]}'
+                    },
+                    {
+                        role: 'user',
+                        content: `Pending sub-goals:\n${pendingList}\n\nRecent conversation:\n${recentTurns}\n\nWhich pending sub-goals are now fully completed?`
+                    }
+                ]
+            });
+            const match = response.content.match(/\{[\s\S]*\}/);
+            if (!match) return;
+            const parsed = JSON.parse(match[0]) as { completed?: number[] };
+            if (!Array.isArray(parsed.completed)) return;
+            for (const idx of parsed.completed) {
+                const sg = pending[idx - 1];
+                if (sg) {
+                    this.goalInjector.markSubGoalDone(sg);
+                    this.emitTrace('planning', 'subgoal_done', { subGoal: sg });
+                }
+            }
+            this.context.metadata['goal'] = this.goalInjector.getGoal();
+        } catch (err: unknown) {
+            this.logger.warn(`[GoalInjector] Sub-goal reconciliation failed (non-fatal): ${(err as Error).message ?? String(err)}`);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
@@ -1118,6 +1174,10 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         this.iterations = 0;
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
         const maxCompletionTokens = this.config.maxCompletionTokens ?? 4_000;
+        // Budget for goal-verifier corrections. Each correction re-enters the ReAct
+        // loop with full tool access so the model can actually *act* on what is
+        // missing (read a file, write output, …) rather than merely re-phrase text.
+        let correctionsRemaining = this.config.maxGoalCorrections ?? 1;
 
         while (this.iterations < maxIts) {
             this.iterations++;
@@ -1186,6 +1246,11 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 }
 
                 if (this.goalInjector) this.goalInjector.incrementTurn();
+                // Reconcile sub-goal progress every N tool rounds (anti-drift; opt-in).
+                if (this.config.goalProgressReconciliation &&
+                    this.iterations % (this.config.goalInjectionN ?? 3) === 0) {
+                    await this._reconcileSubGoals();
+                }
                 continue;
             }
 
@@ -1197,6 +1262,11 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             const finalSystemPrompt = this.buildSystemPrompt(userMessageStr, this.iterations);
             const finalMessages = this.buildMessages(finalSystemPrompt, this.iterations);
 
+            // Buffer the final response instead of yielding live. Goal verification
+            // runs *before* anything reaches the caller, so a rejected attempt is
+            // silently discarded and corrected — the stream only ever delivers the
+            // single approved answer. (Yielding live here would surface the rejected
+            // attempt followed by the corrected one as a duplicated response.)
             let accumulated = '';
             let finalTokenCount = 0;
             let finalFinishReason: string | undefined;
@@ -1208,7 +1278,6 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 if (chunk.delta) {
                     accumulated += chunk.delta;
                     finalTokenCount += Math.ceil(chunk.delta.length / 4);
-                    yield chunk.delta;
                 }
                 if (chunk.finished) {
                     finalFinishReason = chunk.finishReason;
@@ -1227,52 +1296,50 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             this.context.turns.push(finalTurn);
             if (this.config.onTurn) this.config.onTurn(finalTurn);
 
-            // Goal verification — runs AFTER yielding, never causes a second stream
+            // Goal verification — runs on the buffered (not-yet-yielded) response.
+            // If the goal is incomplete and correction budget remains, we re-enter
+            // the ReAct loop with a corrective user turn. The buffered attempt is
+            // never yielded, so the caller sees only the corrected final answer.
             if (finalFinishReason === 'stop') {
                 const verdict = await this._verifyGoal(this.context.turns);
-                if (verdict && !verdict.achieved && verdict.missing) {
-                    this.logger.info(`[GoalVerifier] Incomplete — running silent correction: "${verdict.missing}"`);
+                // Only re-enter the loop if there is still iteration budget — otherwise
+                // the corrective turn would trip the maxIterations guard and throw,
+                // turning a soft "incomplete" into a hard error.
+                if (verdict && !verdict.achieved && verdict.missing && correctionsRemaining > 0 && this.iterations < maxIts) {
+                    correctionsRemaining--;
+                    this.logger.info(`[GoalVerifier] Incomplete — re-entering loop with tools to correct: "${verdict.missing}" (${correctionsRemaining} correction(s) left)`);
                     this.emitTrace('verification', 'goal_correction_start', {
                         missing: verdict.missing,
-                        reason: verdict.reason
+                        reason: verdict.reason,
+                        correctionsRemaining
                     });
-                    try {
-                        const corrMsgs = this.buildMessages(this.buildSystemPrompt(verdict.missing, this.iterations), this.iterations);
-                        corrMsgs.push({ role: 'user', content: verdict.missing });
-                        const correction = await this.adapter.complete({
-                            model: this.config.model, messages: corrMsgs, maxTokens: maxCompletionTokens
-                        });
-                        if (correction.content) {
-                            this.context.turns.push({
-                                role: 'assistant', content: correction.content,
-                                tokenCount: correction.usage?.completionTokens ?? this.adapter.estimateTokens(correction.content),
-                                turnIndex: this.context.turns.length, compressed: false
-                            });
-                            this.emitTrace('verification', 'goal_correction_done', {
-                                missing: verdict.missing,
-                                correctionTokens: correction.usage?.completionTokens
-                            });
-                        }
-                    } catch (err: unknown) {
-                        const errMsg = (err as Error).message;
-                        this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${errMsg}`);
-                        this.emitTrace('error', 'goal_correction_failed', { error: errMsg }, null, null, 'error');
-                    }
+                    const directive = `[Goal verification found the previous response incomplete. Continue working — use tools as needed — to address what is still missing, then provide the complete final answer.]\n\nStill missing: ${verdict.missing}`;
+                    this.context.turns.push({
+                        role: 'user',
+                        content: directive,
+                        tokenCount: this.adapter.estimateTokens(directive),
+                        turnIndex: this.context.turns.length,
+                        compressed: false
+                    });
+                    if (this.goalInjector) this.goalInjector.incrementTurn();
+                    continue;
+                }
 
-                    // Final check after correction — surface a visible warning in the stream if still unmet
-                    const finalVerdict = await this._verifyGoal(this.context.turns);
-                    if (finalVerdict && !finalVerdict.achieved) {
-                        this.logger.warn(`[GoalVerifier] Final verification failed: ${finalVerdict.reason}`);
-                        this.emitTrace('verification', 'goal_verification_result', {
-                            achieved: false, reason: finalVerdict.reason, missing: finalVerdict.missing
-                        }, null, null, 'error');
-                        const warningBlock = `\n\n---\n\n⚠️ **Goal Verification Warning**\n* **Status:** Success criteria not fully met.\n* **Reason:** ${finalVerdict.reason ?? 'Unknown'}\n* **Missing:** ${finalVerdict.missing ?? 'Not specified'}\n\n`;
-                        yield warningBlock;
-                        const lastTurn = [...this.context.turns].reverse().find(t => t.role === 'assistant');
-                        if (lastTurn) lastTurn.content = (lastTurn.content as string) + warningBlock;
-                    }
+                // Budget exhausted (or no actionable "missing"): append a visible warning
+                // to the approved answer before it is streamed out below.
+                if (verdict && !verdict.achieved) {
+                    this.logger.warn(`[GoalVerifier] Goal still unmet after corrections: ${verdict.reason}`);
+                    this.emitTrace('verification', 'goal_verification_result', {
+                        achieved: false, reason: verdict.reason, missing: verdict.missing
+                    }, null, null, 'error');
+                    const warningBlock = `\n\n---\n\n⚠️ **Goal Verification Warning**\n* **Status:** Success criteria not fully met.\n* **Reason:** ${verdict.reason ?? 'Unknown'}\n* **Missing:** ${verdict.missing ?? 'Not specified'}\n\n`;
+                    accumulated += warningBlock;
+                    finalTurn.content = accumulated;
                 }
             }
+
+            // Verification settled — stream the single approved answer to the caller.
+            if (accumulated) yield accumulated;
 
             this.logger.info(`[stream] Streaming run completed`);
             return;
@@ -1335,7 +1402,9 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         this.iterations = 0;
         this.stepCounter = new StepCounter(this.config.maxSteps ?? 20);
         const maxCompletionTokens = this.config.maxCompletionTokens ?? 4_000;
-        let goalVerificationDone = false;
+        // Budget for goal-verifier corrections. Each correction re-enters the loop
+        // with full tool access (see stream() for rationale).
+        let correctionsRemaining = this.config.maxGoalCorrections ?? 1;
 
         while (this.iterations < maxIts) {
             this.iterations++;
@@ -1492,6 +1561,11 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 }
 
                 if (this.goalInjector) this.goalInjector.incrementTurn();
+                // Reconcile sub-goal progress every N tool rounds (anti-drift; opt-in).
+                if (this.config.goalProgressReconciliation &&
+                    this.iterations % (this.config.goalInjectionN ?? 3) === 0) {
+                    await this._reconcileSubGoals();
+                }
                 continue;
             }
 
@@ -1511,55 +1585,40 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 this.context.turns.push(finalTurn);
                 if (this.config.onTurn) this.config.onTurn(finalTurn);
 
-                // Goal verification — runs silently, result stored in context only
-                if (response.finishReason === 'stop' && !goalVerificationDone) {
-                    goalVerificationDone = true;
+                // Goal verification. If incomplete and budget remains, re-enter the
+                // loop with a corrective user turn so the model can act (with tools)
+                // on what is missing — rather than a tool-less one-shot rewrite.
+                if (response.finishReason === 'stop') {
                     const verdict = await this._verifyGoal(this.context.turns);
-                    if (verdict && !verdict.achieved && verdict.missing) {
-                        this.logger.info(`[GoalVerifier] Incomplete — running silent correction: "${verdict.missing}"`);
+                    // Only re-enter if iteration budget remains, else the corrective
+                    // turn would trip the maxIterations guard and throw.
+                    if (verdict && !verdict.achieved && verdict.missing && correctionsRemaining > 0 && this.iterations < maxIts) {
+                        correctionsRemaining--;
+                        this.logger.info(`[GoalVerifier] Incomplete — re-entering loop with tools to correct: "${verdict.missing}" (${correctionsRemaining} correction(s) left)`);
                         this.emitTrace('verification', 'goal_correction_start', {
                             missing: verdict.missing,
-                            reason: verdict.reason
+                            reason: verdict.reason,
+                            correctionsRemaining
                         });
-                        try {
-                            const correctionMessages = this.buildMessages(
-                                this.buildSystemPrompt(verdict.missing, this.iterations),
-                                this.iterations
-                            );
-                            correctionMessages.push({ role: 'user', content: verdict.missing });
-                            const correction = await this.adapter.complete({
-                                model: this.config.model,
-                                messages: correctionMessages,
-                                maxTokens: maxCompletionTokens
-                            });
-                            if (correction.content) {
-                                this.context.turns.push({
-                                    role: 'assistant',
-                                    content: correction.content,
-                                    tokenCount: correction.usage?.completionTokens ?? this.adapter.estimateTokens(correction.content),
-                                    turnIndex: this.context.turns.length,
-                                    compressed: false
-                                });
-                                this.emitTrace('verification', 'goal_correction_done', {
-                                    missing: verdict.missing,
-                                    correctionTokens: correction.usage?.completionTokens
-                                });
-                            }
-                        } catch (err: unknown) {
-                            const errMsg = (err as Error).message;
-                            this.logger.warn(`[GoalVerifier] Correction failed (non-fatal): ${errMsg}`);
-                            this.emitTrace('error', 'goal_correction_failed', { error: errMsg }, null, null, 'error');
-                        }
+                        const directive = `[Goal verification found the previous response incomplete. Continue working — use tools as needed — to address what is still missing, then provide the complete final answer.]\n\nStill missing: ${verdict.missing}`;
+                        this.context.turns.push({
+                            role: 'user',
+                            content: directive,
+                            tokenCount: this.adapter.estimateTokens(directive),
+                            turnIndex: this.context.turns.length,
+                            compressed: false
+                        });
+                        if (this.goalInjector) this.goalInjector.incrementTurn();
+                        continue;
                     }
 
-                    // Final check after correction — append warning block to content if goal still unmet
-                    const finalVerdict = await this._verifyGoal(this.context.turns);
-                    if (finalVerdict && !finalVerdict.achieved) {
-                        this.logger.warn(`[GoalVerifier] Final verification failed: ${finalVerdict.reason}`);
+                    // Budget exhausted (or no actionable "missing"): append a warning.
+                    if (verdict && !verdict.achieved) {
+                        this.logger.warn(`[GoalVerifier] Goal still unmet after corrections: ${verdict.reason}`);
                         this.emitTrace('verification', 'goal_verification_result', {
-                            achieved: false, reason: finalVerdict.reason, missing: finalVerdict.missing
+                            achieved: false, reason: verdict.reason, missing: verdict.missing
                         }, null, null, 'error');
-                        const warningBlock = `\n\n---\n\n⚠️ **Goal Verification Warning**\n* **Status:** Success criteria not fully met.\n* **Reason:** ${finalVerdict.reason ?? 'Unknown'}\n* **Missing:** ${finalVerdict.missing ?? 'Not specified'}\n\n`;
+                        const warningBlock = `\n\n---\n\n⚠️ **Goal Verification Warning**\n* **Status:** Success criteria not fully met.\n* **Reason:** ${verdict.reason ?? 'Unknown'}\n* **Missing:** ${verdict.missing ?? 'Not specified'}\n\n`;
                         const lastTurn = [...this.context.turns].reverse().find(t => t.role === 'assistant');
                         if (lastTurn) lastTurn.content = (lastTurn.content as string) + warningBlock;
                         this.logger.info(`[${opts.label}] Run completed with goal warning`);

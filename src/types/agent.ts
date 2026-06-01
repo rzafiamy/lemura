@@ -173,6 +173,24 @@ export interface SessionConfig {
      * @since 1.5.0
      */
     enableGoalVerification?: boolean;
+    /**
+     * Maximum number of goal-verification corrections per run. When verification
+     * finds the response incomplete, the agent re-enters the ReAct loop (with full
+     * tool access) up to this many times to actually resolve what is missing,
+     * rather than emitting a tool-less one-shot rewrite. Defaults to 1.
+     * Set to 0 to disable corrective re-entry (a warning is surfaced instead).
+     * @since 1.5.4
+     */
+    maxGoalCorrections?: number;
+    /**
+     * When true, the agent periodically reconciles which decomposed sub-goals are
+     * already complete (one small LLM call every `goalInjectionN` tool rounds) and
+     * marks them done, so the re-injected goal block reflects real progress instead
+     * of always showing every sub-goal as pending. Counters goal drift on long runs.
+     * Defaults to false (no extra calls). Requires `enableGoalPlanning`.
+     * @since 1.5.4
+     */
+    goalProgressReconciliation?: boolean;
     goalInjectionFrequency?: 'always' | 'every_N_turns' | 'on_compression';
     goalInjectionPosition?: 'system_prompt' | 'pre_turn';
     /** Skill budget — max tokens the skill injection block may consume */

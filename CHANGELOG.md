@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-05-30
+
+### Fixed
+
+- **Goal verification could not recover an incomplete response** (significant): when the goal verifier returned `achieved: false`, the runtime ran a single **tool-less** `complete()` correction whose output was never re-verified (the run was flagged done after the first check) and, in `stream()`, was never sent to the caller. A response missing a step that required a tool (read a file, write output, …) could therefore never actually be completed. The verifier now re-enters the ReAct loop with a corrective user turn so the model has **full tool access** and the corrected answer is **streamed**, bounded by the new `maxGoalCorrections` budget (default `1`). When the budget is exhausted and the goal is still unmet, a visible Goal Verification Warning is appended/streamed as before. Applies to both `run()` and `stream()`.
+
+### Added
+
+- **`maxGoalCorrections`** (`SessionConfig`, default `1`): maximum goal-verification corrective re-entries per run. Set to `0` to disable corrective re-entry (a warning is surfaced instead).
+- **`goalProgressReconciliation`** (`SessionConfig`, default `false`): when enabled, the agent periodically (every `goalInjectionN` tool rounds) reconciles which decomposed sub-goals are already complete and marks them done, so the re-injected goal block reflects real progress instead of always showing every sub-goal as pending. Counters goal drift on long runs at the cost of one small LLM call per reconciliation. This wires up `GoalInjector.markSubGoalDone()`, which was previously never invoked.
+
 ## [1.5.3] - 2026-05-30
 
 ### Fixed

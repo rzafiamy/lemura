@@ -1,4 +1,6 @@
+<p align="center">
   <img src="https://raw.githubusercontent.com/rzafiamy/lemura/main/sites/docs/public/lemura-logo.png" alt="lemura logo" width="200" />
+</p>
 
 # lemura
 
@@ -24,10 +26,11 @@
 
 - **🧠 Dynamic Skill Market**: Switch skills on/off at runtime via tags, names, or tool dependencies.
 - **🔌 Native MCP Support**: Connect to any Model Context Protocol server with custom header support (Auth).
-- **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer for secure tool execution.
-- **🎯 Goal Maintenance**: LLM-powered sub-goal decomposition and status tracking across turns.
-- **🧹 Summary Injection**: Automatically compresses history while ensuring the model never "forgets" the context.
-- **🌊 Native Streaming**: Token-by-token completion for smooth, responsive user experiences.
+- **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer for secure tool execution — fail-safe by design.
+- **🎯 Goal Maintenance & Verification**: LLM-powered sub-goal decomposition, progress reconciliation, and post-run goal verification that re-enters the loop with full tool access to finish incomplete answers.
+- **🧹 Context Compression**: Sandwich, history, and summary-injection strategies keep long conversations within budget while ensuring the model never "forgets" the context.
+- **🌊 Native Streaming**: `run()` and `stream()` share one ReAct core — `stream()` completes all tool use and verification, then emits the final answer token-by-token.
+- **📚 RAG Connector**: Pluggable `IRAGAdapter` interface plus a bundled in-memory adapter for ingest → query → context injection.
 - **📊 Observability**: Detailed tracing, token tracking, and structured logging with actionable hints.
 
 ## 🚀 Install
@@ -142,12 +145,28 @@ Explore the architecture and advanced capabilities of `lemura` at [lemura.makix.
 
 | Export | Description |
 |---|---|
-| `SessionManager` | The main entry point orchestrating the ReAct loop and tools. |
-| `ContextManager` | Manages the conversation history using compression strategies. |
-| `OpenAICompatibleAdapter` | Reference adapter for OpenAI, Groq, Together, etc. |
-| `ToolRegistry` | Registers and executes tools for the agent. |
+| `SessionManager` | The main entry point orchestrating the ReAct loop, tools, goals, and streaming. |
+| `ContextManager` | Manages the conversation history using pluggable compression strategies. |
+| `OpenAICompatibleAdapter` | Reference adapter for OpenAI, Groq, Together, Ollama, and any OpenAI-compatible endpoint. |
+| `ToolRegistry` | Registers, validates, and executes tools with timeout and budget enforcement. |
 | `SkillInjector` | Loads and formats YAML/Markdown skills into system prompts. |
+| `MCPClient` / `MCPClientRegistry` | Connect to Model Context Protocol servers and register their tools. |
+| `InMemoryRAGAdapter` | Self-contained RAG adapter for testing the ingest → query round-trip. |
 | `DefaultLogger` | Colorized logger with Problem/Hints metadata support. |
+
+### Subpath Exports
+
+Each layer is independently importable so consumers only bundle what they use:
+
+```ts
+import { SandwichCompressionStrategy } from 'lemura/context';
+import { OpenAICompatibleAdapter }      from 'lemura/adapters';
+import { ToolRegistry }                 from 'lemura/tools';
+import { SkillInjector }                from 'lemura/skills';
+import { InMemoryRAGAdapter }           from 'lemura/rag';
+import { MCPClient }                    from 'lemura/mcp';
+import { DefaultLogger }                from 'lemura/logger';
+```
 
 ## 🪵 Logging and Tracing
 
@@ -190,7 +209,7 @@ When an error occurs (like an invalid API key), `lemura` provides beautiful, str
 
 ## 🤝 Contributing
 
-We welcome contributions! Please read our [Internal Rules](./.cursor/rules/Project.md) and [Documentation Guidelines](./.cursor/rules/Documentation.md) before submitting a PR.
+We welcome contributions! Please read our [Internal Rules](./.agent/rules/Project.md) and [Documentation Guidelines](./.agent/rules/Documentation.md) before submitting a PR.
 
 ## 📄 License
 
