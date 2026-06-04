@@ -76,27 +76,29 @@ For the EV market research example:
 
 ## The Goal Injection Block
 
-The goal is stored in `context.metadata['goal']` and injected before every provider call:
+The goal is stored in `context.metadata['goal']` and injected before every provider call. Since **v1.5.2**, all runtime-injected blocks use a namespaced `lemura:` XML wrapper to prevent collisions with user-supplied prompt content:
 
+```xml
+<lemura:goal>
+  <lemura:statement>Research Q4 2025 EV market trends and create a summary report</lemura:statement>
+  <lemura:criteria>
+    - Summary covers EU, US, and China markets with specific figures
+    - Report includes sources for all statistics
+    - Output is a formatted markdown document, 500-1000 words
+  </lemura:criteria>
+  <lemura:subgoals status="pending">
+    - Search for Q4 2025 EU EV market sales data
+    - Compile comparison statistics across all markets
+    - Write a structured summary report
+  </lemura:subgoals>
+  <lemura:subgoals status="done">
+    - Search for Q4 2025 US EV market sales data
+    - Search for Q4 2025 China EV market sales data
+  </lemura:subgoals>
+</lemura:goal>
 ```
-[CURRENT GOAL]
-Research Q4 2025 EV market trends and create a summary report
 
-Success criteria:
-- Summary covers EU, US, and China markets with specific figures
-- Report includes sources for all statistics
-- Output is a formatted markdown document, 500-1000 words
-
-Sub-goals remaining:
-- Search for Q4 2025 EU EV market sales data ← pending
-- Compile comparison statistics across all markets ← pending
-- Write a structured summary report ← pending
-
-Sub-goals completed:
-- ✅ Search for Q4 2025 US EV market sales data
-- ✅ Search for Q4 2025 China EV market sales data
-[/CURRENT GOAL]
-```
+> **Pre-1.5.2 note:** Earlier versions emitted a plain `[CURRENT GOAL] … [/CURRENT GOAL]` block. If you parse the injected goal anywhere, switch to the namespaced tags.
 
 This block:
 - **Survives context compression** — it's in `context.metadata`, which is never compressed
@@ -206,6 +208,78 @@ const ctx = session.getContext();
 const goal = ctx.metadata['goal'] as { completedSubGoals: string[] } | undefined;
 console.log('Completed:', goal?.completedSubGoals);
 ```
+
+---
+
+## Automatic Progress Reconciliation *(since v1.5.4)*
+
+Manually calling `markSubGoalDone()` is error-prone — you have to detect completion yourself. Set `goalProgressReconciliation: true` and lemura does it for you: every `goalInjectionN` tool rounds, it makes one small LLM call that compares the pending sub-goals against the recent conversation and marks the completed ones done. The re-injected goal block then reflects **real** progress instead of always showing every sub-goal as pending — a strong counter to goal drift on long runs.
+
+```typescript
+const session = new SessionManager({
+  adapter, model: 'gpt-4o', maxTokens: 128_000,
+  enableGoalPlanning: true,
+  goalProgressReconciliation: true,  // auto-mark sub-goals done (default: false)
+  goalInjectionN: 3,                 // reconcile every 3 tool rounds
+});
+```
+
+> **Cost:** one extra small LLM call per reconciliation. It is skipped entirely when there are no pending sub-goals. Requires `enableGoalPlanning`.
+
+---
+
+## Goal Verification *(since v1.5.0)*
+
+Goal **injection** keeps the model focused; goal **verification** confirms the model actually finished. After the ReAct loop reaches a `stop` finish, lemura checks whether the goal's success criteria were met. If not — and correction budget remains — it **re-enters the loop with full tool access** to resolve what is missing, then re-checks. The verification runs on the *buffered* response, so a rejected attempt is silently corrected and the caller only ever sees the single approved answer.
+
+Verification is **on by default** whenever `enableGoalPlanning` is true. Opt out with `enableGoalVerification: false`.
+
+### Option A — a custom `goalVerifier` callback
+
+Best for deterministic, checkable goals (a file was written, output contains a marker):
+
+```typescript
+const session = new SessionManager({
+  adapter, model: 'gpt-4o', maxTokens: 128_000,
+  enableGoalPlanning: true,
+  enableGoalVerification: true,   // default when goal planning is on
+  maxGoalCorrections: 1,          // re-enter the loop up to N times (default: 1)
+  goalVerifier: async (goal, turns) => {
+    const last = turns.at(-1)?.content ?? '';
+    return String(last).includes('## Result')
+      ? { achieved: true }
+      : { achieved: false, missing: 'Final "## Result" section not produced' };
+  },
+});
+```
+
+The verifier returns a `GoalVerifierResult`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `achieved` | `boolean` | Whether the goal was fully met |
+| `missing` | `string?` | When `false`, what is still missing — injected as a follow-up user turn to drive the correction |
+| `reason` | `string?` | Short human-readable reason, surfaced in trace events |
+
+### Option B — built-in LLM check
+
+When no `goalVerifier` is supplied and `successCriteria` is non-empty, lemura falls back to a built-in LLM check against those criteria. No extra wiring needed.
+
+### The correction loop *(since v1.5.4)*
+
+When the verdict is `{ achieved: false, missing: '...' }` and `maxGoalCorrections` budget remains, lemura injects a corrective user turn and **re-enters the ReAct loop with full tool access** — so the model can actually *act* (read a file, write output) rather than merely re-phrase text. Each re-entry consumes one correction. When the budget is exhausted and the goal is still unmet, a visible warning is appended to the final answer:
+
+```
+---
+⚠️ **Goal Verification Warning**
+* **Status:** Success criteria not fully met.
+* **Reason:** <reason>
+* **Missing:** <missing>
+```
+
+Set `maxGoalCorrections: 0` to skip corrective re-entry entirely and surface the warning immediately.
+
+> **Trace events:** `goal_correction_start`, `goal_correction_done`, `goal_correction_failed`, and `goal_verification_result` are emitted in both `run()` and `stream()` so you can observe the verification path via `onTrace`.
 
 ---
 

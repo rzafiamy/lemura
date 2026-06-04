@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-04
+
+### Added
+
+- **MetaRouter — per-turn intent classification + tool narrowing** (`SessionConfig.enableRouting`): An optional router runs once at the start of each turn, before the ReAct loop, to (1) classify the message as `chat` or `task`, and (2) select which tool categories are relevant. Tools whose `category` is not selected are hidden from the model for that turn — fewer, more relevant tools means less confusion and lower token cost. A `chat` verdict also suppresses goal planning and verification for that turn. Off by default; when disabled, all tools are exposed exactly as before (fully backward-compatible).
+- **`IRouterAdapter` interface** (`src/types/agent.ts`): `route(userMessage, availableCategories) => RouterDecision`. Supply a custom router via `SessionConfig.router`, or use the built-in `LLMRouter`. Implementations should fail safe — return `{ mode: 'task', categories: <all> }` on error so the agent never loses tool access.
+- **`LLMRouter`** (`src/agent/execution/Router.ts`): Built-in router. Single temperature-0 LLM classification call, a conversational fast-path that skips the LLM for greetings/acknowledgements, and a fail-safe fallback to all categories on any parse/LLM error. Hallucinated categories not in the offered set are dropped.
+- **`RouterDecision` / `ToolCategoryInfo` interfaces** (`src/types/agent.ts`): `RouterDecision` = `{ mode: 'chat' | 'task'; categories: string[]; reason?: string }`. `ToolCategoryInfo` = `{ name: string; tools: string[] }`, passed to the router so it knows what each category contains.
+- **`IToolDefinition.category?: string`**: Optional category tag used by the router to group tools. Open string — lemura does not own a fixed catalog. Uncategorized tools are never filtered out (treated as always available).
+- **`SessionConfig.router`**: Custom `IRouterAdapter`. Takes precedence over the built-in router when `enableRouting` is true.
+- **`SessionConfig.routerModel`**: Model used by the built-in router. Defaults to `config.model` — point this at a small/cheap model for fast classification.
+- **`SessionConfig.alwaysAvailableCategories?: string[]`**: Categories always exposed regardless of the router decision (e.g. a scratchpad category).
+- **`TraceEvent.type: 'routing'`**: New trace type. Emitted as `route_decision` with `mode`, `categories`, and `reason`.
+- **`Router.test.ts`**: Unit tests covering tool narrowing, always-available categories, the routing-disabled default, the no-categorized-tools fallback, and the built-in `LLMRouter` (fast-path, hallucinated-category dropping, fail-safe).
+
 ## [1.5.5] - 2026-06-01
 
 ### Fixed

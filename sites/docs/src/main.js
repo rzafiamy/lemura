@@ -141,7 +141,8 @@ const docs = [
     color: 'rose',
     category: 'Advanced',
     children: [
-      { id: 'advanced-execution/goal-planning', title: 'Goal Planning & Injection', file: 'advanced-execution/goal-planning.md', icon: 'target' },
+      { id: 'advanced-execution/goal-planning', title: 'Goal Planning & Verification', file: 'advanced-execution/goal-planning.md', icon: 'target' },
+      { id: 'advanced-execution/routing', title: 'Routing (MetaRouter)', file: 'advanced-execution/routing.md', icon: 'shuffle' },
       { id: 'advanced-execution/continuation-planning', title: 'Continuation Planning', file: 'advanced-execution/continuation-planning.md', icon: 'git-branch' },
       { id: 'advanced-execution/max-steps', title: 'maxSteps & Loop Control', file: 'advanced-execution/max-steps.md', icon: 'repeat' },
       { id: 'advanced-execution/tool-response-compression', title: 'Tool Response Compression', file: 'advanced-execution/tool-response-compression.md', icon: 'minimize-2' },
@@ -572,7 +573,7 @@ async function renderDocs(docId) {
 
         <div class="p-6 border-t border-black/5">
           <div class="flex items-center justify-between">
-            <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Version v1.2.0</span>
+            <span class="text-[10px] font-black uppercase text-slate-400 tracking-widest">Version v1.6.0</span>
             <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
           </div>
         </div>

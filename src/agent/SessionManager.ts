@@ -9,7 +9,10 @@ import {
     NormalizedMessage,
     ToolCall,
     TraceEvent,
-    GoalVerifierResult
+    GoalVerifierResult,
+    IRouterAdapter,
+    RouterDecision,
+    ToolCategoryInfo
 } from '../types/index.js';
 import { ContextManager } from '../context/ContextManager.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
@@ -34,6 +37,7 @@ import { FinalResponseFormatter } from './execution/FinalResponseFormatter.js';
 import { ToolResponseProcessor } from './execution/ToolResponseProcessor.js';
 import { Goal, GoalInjector } from './execution/GoalInjector.js';
 import { ContinuationPlanner, ContinuationPlan, ContinuationStep } from './execution/ContinuationPlanner.js';
+import { LLMRouter } from './execution/Router.js';
 import { MCPClientRegistry } from '../mcp/MCPClientRegistry.js';
 
 /**
@@ -76,6 +80,14 @@ export class SessionManager {
     private toolResponseProcessor: ToolResponseProcessor;
     private goalInjector: GoalInjector | null = null;
     private continuationPlanner: ContinuationPlanner | null = null;
+    private router: IRouterAdapter | null = null;
+    /**
+     * Tool categories selected by the router for the current turn, or `null` when
+     * routing is disabled / not yet run. When non-null, only tools whose
+     * `category` is in this set (plus always-available + uncategorized tools) are
+     * exposed to the model.
+     */
+    private routedCategories: Set<string> | null = null;
     /** Frozen goal/plan injection text keyed by turn index — used when staticSystemPrompt is on */
     private _turnInjections: Map<number, string> = new Map();
 
@@ -148,6 +160,15 @@ export class SessionManager {
 
         for (const strategy of config.compressionStrategies || []) {
             this.contextManager.registerStrategy(strategy);
+        }
+
+        // Router (MetaRouter) — custom takes precedence over the built-in LLM router.
+        if (config.enableRouting) {
+            this.router = config.router ?? new LLMRouter({
+                adapter: this.adapter,
+                model: config.routerModel ?? config.model,
+                logger: this.logger,
+            });
         }
 
         // Register STM and Scratchpad tools if registry is provided
@@ -502,6 +523,70 @@ export class SessionManager {
             servers: this.mcpRegistry.getRegisteredServers(),
             toolCount: bridgedTools.length
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // Routing (MetaRouter) — runs once per turn before the ReAct loop
+    // -----------------------------------------------------------------------
+
+    /** Groups registered tools into {@link ToolCategoryInfo} by their `category`. */
+    private buildToolCategories(): ToolCategoryInfo[] {
+        const byCategory = new Map<string, string[]>();
+        for (const tool of this.toolRegistry.getAll()) {
+            if (!tool.category) continue; // uncategorized → always available, not routed
+            const list = byCategory.get(tool.category) ?? [];
+            list.push(tool.name);
+            byCategory.set(tool.category, list);
+        }
+        return Array.from(byCategory.entries()).map(([name, tools]) => ({ name, tools }));
+    }
+
+    /**
+     * Runs the router for the current turn (when enabled) and stores the selected
+     * categories in `this.routedCategories`. Returns the decision so the loop can
+     * suppress goal planning/verification on a `chat` verdict. Fail-safe: on a
+     * null/failed decision, routing is disabled for the turn (all tools exposed).
+     */
+    private async _runRoutingStep(userMessage: string): Promise<RouterDecision | null> {
+        if (!this.router) {
+            this.routedCategories = null;
+            return null;
+        }
+        const categories = this.buildToolCategories();
+        if (categories.length === 0) {
+            this.routedCategories = null;
+            return null;
+        }
+        try {
+            const decision = await this.router.route(userMessage, categories);
+            const always = this.config.alwaysAvailableCategories ?? [];
+            this.routedCategories = new Set([...decision.categories, ...always]);
+            this.context.metadata['routedCategories'] = Array.from(this.routedCategories);
+            this.emitTrace('routing', 'route_decision', {
+                mode: decision.mode,
+                categories: decision.categories,
+                reason: decision.reason,
+            });
+            this.logger.debug(`[Router] mode=${decision.mode} categories=[${decision.categories.join(', ')}]`);
+            return decision;
+        } catch (err: unknown) {
+            // Should not happen (LLMRouter fails safe internally) but guard custom routers.
+            this.logger.warn(`[Router] Routing step failed, exposing all tools: ${(err as Error).message ?? String(err)}`);
+            this.routedCategories = null;
+            return null;
+        }
+    }
+
+    /**
+     * Returns the tools to expose this turn, filtered by the router decision.
+     * Always exposes uncategorized tools and tools in always-available /
+     * routed-in categories. When routing is off (`routedCategories === null`),
+     * returns every tool — identical to pre-routing behavior.
+     */
+    private getActiveTools(): IToolDefinition[] {
+        const all = this.toolRegistry.getAll();
+        if (this.routedCategories === null) return all;
+        return all.filter(t => !t.category || this.routedCategories!.has(t.category));
     }
 
     // -----------------------------------------------------------------------
@@ -1148,8 +1233,12 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
         this.logger.info(`Starting streaming session run`, { model: this.config.model, message: userMessageStr });
 
-        // Goal injector init
-        if (this.config.enableGoalPlanning && !this.goalInjector) {
+        // Routing — runs first so a `chat` verdict can suppress goal planning/verification.
+        const routeDecision = await this._runRoutingStep(userMessageStr);
+        const isChatTurn = routeDecision?.mode === 'chat';
+
+        // Goal injector init (skipped on a conversational turn)
+        if (this.config.enableGoalPlanning && !this.goalInjector && !isChatTurn) {
             this.goalInjector = new GoalInjector({
                 id: 'auto',
                 statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
@@ -1203,7 +1292,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 response = await this.adapter.complete({
                     model: this.config.model,
                     messages,
-                    tools: this.stepCounter.isMaxReached() ? [] : this.toolRegistry.getAll(),
+                    tools: this.stepCounter.isMaxReached() ? [] : this.getActiveTools(),
                     maxTokens: maxCompletionTokens
                 });
             } catch (err: unknown) {
@@ -1368,8 +1457,12 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             message: userMessageStr
         });
 
+        // Routing — runs first so a `chat` verdict can suppress goal planning/verification.
+        const routeDecision = await this._runRoutingStep(userMessageStr);
+        const isChatTurn = routeDecision?.mode === 'chat';
+
         // Goal injector: initialise on first run if enableGoalPlanning and no manual goal set
-        if (this.config.enableGoalPlanning && !this.goalInjector) {
+        if (this.config.enableGoalPlanning && !this.goalInjector && !isChatTurn) {
             this.goalInjector = new GoalInjector({
                 id: 'auto',
                 statement: typeof userMessage === 'string' ? userMessage : '[multimodal]',
@@ -1445,7 +1538,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
                 response = await this.adapter.complete({
                     model: this.config.model,
                     messages,
-                    tools: this.stepCounter.isMaxReached() ? [] : this.toolRegistry.getAll(),
+                    tools: this.stepCounter.isMaxReached() ? [] : this.getActiveTools(),
                     maxTokens: maxCompletionTokens
                 });
             } catch (err: unknown) {

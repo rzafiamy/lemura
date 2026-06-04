@@ -105,6 +105,61 @@ export interface GoalVerifierResult {
     reason?: string;
 }
 
+/**
+ * Lightweight description of a tool category, passed to a router so it can
+ * decide which categories are relevant to the current user message.
+ *
+ * @since 1.6.0
+ */
+export interface ToolCategoryInfo {
+    /** The category name (matches `IToolDefinition.category`). */
+    name: string;
+    /** Names of the tools belonging to this category — gives the router context. */
+    tools: string[];
+}
+
+/**
+ * Verdict returned by a router for a single user turn.
+ *
+ * @since 1.6.0
+ */
+export interface RouterDecision {
+    /**
+     * `'chat'` marks a purely conversational turn — the consumer/loop should
+     * skip the heavy pipeline (no tool exposure beyond always-available
+     * categories, and goal planning/verification suppressed for this turn).
+     * `'task'` runs the full pipeline.
+     */
+    mode: 'chat' | 'task';
+    /**
+     * Tool categories selected as relevant. Empty implies no categorized tools
+     * are exposed (typical for `mode: 'chat'`). Always-available categories
+     * (see `SessionConfig.alwaysAvailableCategories`) and uncategorized tools
+     * are exposed regardless of this list.
+     */
+    categories: string[];
+    /** Short human-readable reason — surfaced in trace events. */
+    reason?: string;
+}
+
+/**
+ * Pluggable router. Maps a user message to a {@link RouterDecision} that
+ * narrows the tool surface for the turn. Supply your own, or enable the
+ * built-in LLM router via `SessionConfig.enableRouting`.
+ *
+ * Implementations should **fail safe**: on any internal error, return
+ * `{ mode: 'task', categories: <all categories> }` so the agent never loses
+ * access to tools because routing hiccupped.
+ *
+ * @since 1.6.0
+ */
+export interface IRouterAdapter {
+    route(
+        userMessage: string,
+        availableCategories: ToolCategoryInfo[]
+    ): Promise<RouterDecision> | RouterDecision;
+}
+
 /** Configuration for a lemura Session */
 export interface SessionConfig {
     /** The provider adapter to use */
@@ -280,12 +335,50 @@ export interface SessionConfig {
      * ]
      */
     mcpServers?: MCPServerConfig[];
+
+    // ── Routing (MetaRouter) ──────────────────────────────────────────────────
+    /**
+     * When true, a router runs once at the start of each turn (before the ReAct
+     * loop) to classify the message (`chat`/`task`) and select relevant tool
+     * categories. Tools whose `category` is not selected are hidden from the
+     * model for that turn — fewer, more relevant tools means less confusion and
+     * lower token cost. A `chat` verdict also suppresses goal planning and
+     * verification for that turn.
+     *
+     * If `router` is supplied it is used; otherwise lemura's built-in
+     * {@link LLMRouter} is used. Defaults to false (no routing — all tools
+     * always exposed, identical to pre-1.6.0 behavior).
+     *
+     * @since 1.6.0
+     */
+    enableRouting?: boolean;
+    /**
+     * Custom router implementation. Takes precedence over the built-in router
+     * when `enableRouting` is true.
+     *
+     * @since 1.6.0
+     */
+    router?: IRouterAdapter;
+    /**
+     * Model used by the built-in router. Defaults to `config.model`. Point this
+     * at a small/cheap model for fast, low-cost classification.
+     *
+     * @since 1.6.0
+     */
+    routerModel?: string;
+    /**
+     * Categories that are always exposed regardless of the router decision
+     * (e.g. a scratchpad category). Uncategorized tools are also always exposed.
+     *
+     * @since 1.6.0
+     */
+    alwaysAvailableCategories?: string[];
 }
 
 /** Rich trace event for observability */
 export interface TraceEvent {
     sessionId?: string;
-    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill' | 'verification';
+    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill' | 'verification' | 'routing';
     name: string;
     input?: any;
     output?: any;

@@ -11,13 +11,16 @@ interface IToolDefinition {
   name: string;                   // snake_case, unique within the session
   description: string;            // what the model reads to decide when to call it
   parameters: JSONSchema;         // validates inputs before execute() is called
-  timeout?: number;               // execution timeout in ms (default: 30,000)
+  timeoutMs?: number;             // per-tool execution timeout in ms (since v1.5.1; falls back to toolRegistryTimeoutMs)
+  category?: string;              // optional group used by the router (since v1.6.0)
   execute(
     params: unknown,
     context: ToolContext
   ): Promise<unknown>;
 }
 ```
+
+> **`category` (since v1.6.0):** an open string used by the [MetaRouter](/docs/advanced-execution/routing) to narrow which tools are exposed per turn. Only meaningful when `enableRouting` is set; uncategorized tools are always exposed.
 
 ---
 

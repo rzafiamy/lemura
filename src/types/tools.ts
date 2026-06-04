@@ -22,5 +22,14 @@ export interface IToolDefinition {
     parameters: Record<string, unknown>; // JSON Schema
     /** Per-call timeout in milliseconds. Falls back to ToolRegistry.defaultTimeoutMs when omitted. */
     timeoutMs?: number;
+    /**
+     * Optional category used by the router (see `SessionConfig.enableRouting`) to
+     * narrow which tools are exposed to the model on a given turn. Open string —
+     * lemura does not own a fixed catalog. Tools left uncategorized are never
+     * filtered out (treated as always available).
+     *
+     * @since 1.6.0
+     */
+    category?: string;
     execute(params: unknown, context: ToolContext): Promise<unknown>;
 }

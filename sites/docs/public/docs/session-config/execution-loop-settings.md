@@ -124,7 +124,50 @@ Where in the context the goal block appears:
 
 ### `goalInjectionN?: number` (default: `3`)
 
-When `goalInjectionFrequency: 'every_N_turns'`, re-inject the goal every N iterations.
+When `goalInjectionFrequency: 'every_N_turns'`, re-inject the goal every N iterations. Also controls how often `goalProgressReconciliation` runs.
+
+---
+
+### `goalProgressReconciliation?: boolean` (default: `false`) *(since v1.5.4)*
+
+When `true`, lemura periodically (every `goalInjectionN` tool rounds) makes one small LLM call to reconcile which decomposed sub-goals are already complete and marks them done — so the re-injected goal block reflects real progress instead of always showing every sub-goal as pending. Counters goal drift on long runs. Requires `enableGoalPlanning`.
+
+---
+
+### `enableGoalVerification?: boolean` (default: `true` when goal planning is on) *(since v1.5.0)*
+
+After the ReAct loop reaches a `stop` finish, verify whether the goal's success criteria were actually met. When unmet and correction budget remains, lemura re-enters the loop with full tool access to fix the gap (see `maxGoalCorrections`). Set to `false` to skip verification without removing `enableGoalPlanning`.
+
+```typescript
+const session = new SessionManager({
+  adapter, model: 'gpt-4o', maxTokens: 128_000,
+  enableGoalPlanning: true,
+  enableGoalVerification: true,
+});
+```
+
+---
+
+### `goalVerifier?: (goal, turns) => GoalVerifierResult` *(since v1.5.0)*
+
+Optional user-supplied callback (sync or async) called after a `stop` finish when goal planning is on. Return `{ achieved: false, missing: '...' }` to drive a correction re-entry, or `{ achieved: true }` to finish. When omitted and `successCriteria` is non-empty, lemura falls back to a built-in LLM check.
+
+```typescript
+goalVerifier: async (goal, turns) => {
+  const last = String(turns.at(-1)?.content ?? '');
+  return last.includes('## Result')
+    ? { achieved: true }
+    : { achieved: false, missing: 'No "## Result" section in output' };
+},
+```
+
+> See [Goal Planning & Verification →](/docs/advanced-execution/goal-planning) for the full verification + correction flow.
+
+---
+
+### `maxGoalCorrections?: number` (default: `1`) *(since v1.5.4)*
+
+Maximum goal-verification corrective re-entries per run. Each correction re-enters the ReAct loop with full tool access so the model can *act* on what is missing. When the budget is exhausted and the goal is still unmet, a visible Goal Verification Warning is appended instead. Set to `0` to disable corrective re-entry.
 
 ---
 
@@ -162,6 +205,32 @@ The execution strategy for continuation planning:
 
 ---
 
+## Routing (MetaRouter) *(since v1.6.0)*
+
+### `enableRouting?: boolean` (default: `false`)
+
+Runs a router once per turn, before the ReAct loop, to classify the message (`chat`/`task`) and select relevant tool categories. Tools whose `category` is not selected are hidden from the model for that turn; a `chat` verdict also suppresses goal planning/verification for the turn. Uses the built-in `LLMRouter` unless a custom `router` is supplied.
+
+```typescript
+const session = new SessionManager({
+  adapter, model: 'gpt-4o', maxTokens: 128_000,
+  enableRouting: true,
+  routerModel: 'gpt-4o-mini',
+  alwaysAvailableCategories: ['scratchpad'],
+  tools: [/* … tools with `category` fields … */],
+});
+```
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `router` | `IRouterAdapter` | — | Custom router; takes precedence over the built-in one |
+| `routerModel` | `string` | `model` | Model used by the built-in `LLMRouter` |
+| `alwaysAvailableCategories` | `string[]` | `[]` | Categories always exposed regardless of the decision |
+
+> See [Routing (MetaRouter) →](/docs/advanced-execution/routing) for the full guide including custom routers and observability.
+
+---
+
 ## Tool Execution Controls
 
 ### `parallelToolCalls?: boolean` (default: `false`)
@@ -180,7 +249,7 @@ const session = new SessionManager({
 
 ### `toolRegistryTimeoutMs?: number` (default: `30_000`)
 
-Default timeout in milliseconds for every tool execution. Individual tools can override this with their own `timeout` field. When exceeded, `LemuraToolTimeoutError` is thrown and the agent receives a structured error observation.
+Default timeout in milliseconds for every tool execution. Individual tools can override this with their own `timeoutMs` field (since v1.5.1). When exceeded, `LemuraToolTimeoutError` is thrown and the agent receives a structured error observation.
 
 ---
 
@@ -232,6 +301,28 @@ Hard token cap per individual tool response, before the `toolResponseProcessor` 
 
 ```typescript
 maxTokensPerTool: 2_000    // no single tool response can exceed 2k tokens
+```
+
+---
+
+## Completion & Prompt Settings
+
+### `maxCompletionTokens?: number` (default: `4_000`)
+
+Maximum tokens the provider may generate per `complete()` call. Separate from `maxTokens` (total context window). Raised from `2_000` to `4_000` in v1.5.4 — the previous default truncated long reasoning chains mid-thought.
+
+```typescript
+maxCompletionTokens: 4_000
+```
+
+---
+
+### `staticSystemPrompt?: boolean` (default: `false`) *(since v1.5.1)*
+
+When `true`, the system prompt is built once and kept identical across all ReAct iterations. Dynamic content (continuation plan status, per-turn goal injection) is moved to the last user/tool message instead, so the KV-cache prefix is never invalidated between turns. Recommended for reasoning models and long agentic runs.
+
+```typescript
+staticSystemPrompt: true
 ```
 
 ---

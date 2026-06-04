@@ -40,9 +40,12 @@ User Message
 │  3. Call provider → get response     │
 │  4a. If tool_call → execute tool     │
 │      → append observation → goto 2  │
-│  4b. If stop → return final answer   │
+│  4b. If stop → verify goal, then    │
+│      return final answer            │
 └──────────────────────────────────────┘
 ```
+
+> Use `session.run(message)` for a single buffered result, or `session.stream(message)` (since v1.5.0) to stream the final answer token-by-token. With `stream()`, all tool calls and goal verification complete *before* the first token is yielded — callers always receive a single clean, verified response.
 
 ---
 
