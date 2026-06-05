@@ -135,7 +135,7 @@ function getChangelogForVersion(cleanVersion) {
   const entryLines = [];
 
   const headerRegex = new RegExp(`^##\\s+\\[?${cleanVersion.replace(/\./g, '\\.')}\\]?(\\s+|$)`);
-  const anyHeaderRegex = /^##\\s+/;
+  const anyHeaderRegex = /^##\s+/;
 
   for (const line of lines) {
     if (anyHeaderRegex.test(line)) {
