@@ -2,7 +2,7 @@ import { IProviderAdapter } from './adapters.js';
 import { IContextStrategy } from './context.js';
 import { IToolDefinition } from './tools.js';
 import { ILogger } from './logger.js';
-import { ISkill } from './skills.js';
+import { ISkill, SkillSelectionConfig } from './skills.js';
 import { IRAGAdapter } from './rag.js';
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 import { MCPServerConfig } from './mcp.js';
@@ -194,6 +194,18 @@ export interface SessionConfig {
      * @since 1.4.0
      */
     activeDynamicTags?: string[];
+
+    /**
+     * Configuration for model-driven (`progressive`) skill selection. When any
+     * skill in `skills` has `strategy: 'progressive'`, Lemura automatically appends
+     * a skill catalog to the system prompt, registers the built-in `load_skill`
+     * tool (auto-trusted by the firewall), and resets progressive skills according
+     * to `persistence`. This object tunes that behaviour; it is ignored when no
+     * progressive skills are present.
+     *
+     * @since 1.7.0
+     */
+    skillSelection?: SkillSelectionConfig;
     /** RAG adapter */
     ragAdapter?: IRAGAdapter;
     /** Context compression strategies */

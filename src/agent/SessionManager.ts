@@ -30,6 +30,7 @@ import {
     summarizeSandwichTool
 } from '../tools/builtin/short_term_memory.js';
 import { createMediaTools } from '../tools/builtin/media.js';
+import { createLoadSkillTool, LOAD_SKILL_TOOL_NAME } from '../tools/builtin/load_skill.js';
 import { MediaBridge } from '../media/MediaBridge.js';
 import { evaluateToolFirewall } from '../tools/ToolFirewall.js';
 import { StepCounter } from './execution/StepCounter.js';
@@ -65,6 +66,8 @@ export class SessionManager {
     private contextManager: ContextManager;
     private toolRegistry: ToolRegistry;
     private skillInjector: SkillInjector;
+    /** True when any registered skill uses `strategy: 'progressive'`. */
+    private hasProgressiveSkills: boolean = false;
     private context: ContextWindow;
     private adapter: IProviderAdapter;
     private config: SessionConfig;
@@ -190,6 +193,21 @@ export class SessionManager {
             }
         }
 
+        // Progressive (model-driven) skills: when present, register the built-in
+        // load_skill tool and append the catalog to the system prompt. The host
+        // wires nothing — the agent selects skills from the catalog itself.
+        this.hasProgressiveSkills = this.skillInjector.getProgressiveSkills().length > 0;
+        if (this.hasProgressiveSkills) {
+            this.toolRegistry.register(
+                createLoadSkillTool(
+                    this.skillInjector,
+                    config.skillSelection,
+                    // Trace the model's selection decision as a first-class skill event.
+                    (name) => this.emitTrace('skill', 'skill_enable', { name, source: 'load_skill' })
+                )
+            );
+        }
+
         this.context = {
             systemPrompt: config.systemPrompt || '',
             scratchpad: '',
@@ -219,13 +237,16 @@ export class SessionManager {
             skills: {
                 total: (config.skills || []).length,
                 active: activeSkills.length,
-                fixed: activeSkills.filter(s => s.strategy !== 'dynamic').length,
+                fixed: activeSkills.filter(s => s.strategy === 'fixed' || s.strategy === undefined).length,
                 dynamic: activeSkills.filter(s => s.strategy === 'dynamic').length,
+                progressive: this.skillInjector.getProgressiveSkills().length,
             }
         });
 
-        // Emit per-skill load traces
-        for (const skill of activeSkills) {
+        // Emit per-skill load traces for EVERY registered skill (not just active),
+        // so progressive/dynamic skills — which start inactive — are visible in the
+        // trace stream from session init. `enabled` reflects current activation.
+        for (const skill of this.skillInjector.getAll()) {
             this.emitTrace('skill', 'skill_load', {
                 name: skill.name,
                 version: skill.version,
@@ -234,6 +255,7 @@ export class SessionManager {
                 priority: skill.priority,
                 tags: skill.tags ?? [],
                 requiredTools: skill.requiredTools ?? [],
+                enabled: skill.enabled === true,
             });
         }
     }
@@ -706,6 +728,16 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     private buildSystemPrompt(userMessage?: string, iteration: number = 0): string {
         let prompt = this.context.systemPrompt || '';
 
+        // Progressive-skill catalog — a stable name+description list the model reads
+        // to decide which skills to pull in via load_skill. Appended near the top so
+        // it stays in the cacheable prefix (it never varies between iterations).
+        if (this.hasProgressiveSkills) {
+            const catalog = this.skillInjector.buildCatalog(
+                this.config.skillSelection?.catalogHeader
+            );
+            if (catalog) prompt += '\n\n' + catalog;
+        }
+
         // When staticSystemPrompt is enabled the system prompt must never vary between
         // iterations — this keeps the KV-cache prefix 100% stable and avoids costly
         // re-computation on every turn. Continuation plan status is therefore injected
@@ -740,6 +772,13 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         );
         if (injectedSkills) {
             prompt += '\n\n' + injectedSkills;
+            const poolInjected = this.skillInjector
+                .getSkillsForInjection('system_prompt')
+                .filter(s => s.strategy === 'dynamic' || s.strategy === 'progressive')
+                .map(s => s.name);
+            if (poolInjected.length > 0) {
+                this.emitTrace('skill', 'skill_inject', { skills: poolInjected, position: 'system_prompt' });
+            }
         }
 
         return prompt.trim();
@@ -967,6 +1006,13 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         toolCallId: string,
         toolResults: Array<{ toolCallId: string; content: string }>
     ): Promise<boolean> {
+        // The built-in load_skill tool is a trusted control-plane tool — it only
+        // toggles which progressive skill content is injected and has no external
+        // side effects, so it bypasses the firewall (like other Lemura builtins).
+        if (toolName === LOAD_SKILL_TOOL_NAME && this.hasProgressiveSkills) {
+            return true;
+        }
+
         const firewall = evaluateToolFirewall(
             this.config.toolFirewall,
             toolName,
@@ -1207,7 +1253,31 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     async run(userMessage: string | ContentBlock[]): Promise<string> {
         if (this.mcpReady) await this.mcpReady;
         await this.ensureScratchpadLoaded();
+        this._resetProgressiveSkillsForTurn();
         return this._executeLoop(userMessage, { label: 'run' });
+    }
+
+    /**
+     * Resets progressive skills at the start of a turn when
+     * `skillSelection.persistence` is `'per_turn'` (the default), so each user
+     * message re-decides which skills to load from the catalog. No-op when
+     * persistence is `'session'` or there are no progressive skills.
+     */
+    private _resetProgressiveSkillsForTurn(): void {
+        if (!this.hasProgressiveSkills) return;
+        const persistence = this.config.skillSelection?.persistence ?? 'per_turn';
+        if (persistence !== 'per_turn') return;
+
+        // Capture which skills were active so the reset is observable in the trace
+        // stream; emit only when something was actually cleared.
+        const cleared = this.skillInjector
+            .getProgressiveSkills()
+            .filter(s => s.enabled === true)
+            .map(s => s.name);
+        this.skillInjector.resetProgressiveSkills();
+        if (cleared.length > 0) {
+            this.emitTrace('skill', 'skill_reset', { skills: cleared, reason: 'per_turn' });
+        }
     }
 
     /**
@@ -1229,6 +1299,7 @@ Respond ONLY with valid JSON (no markdown, no explanations):
     async *stream(userMessage: string | ContentBlock[]): AsyncIterable<string> {
         if (this.mcpReady) await this.mcpReady;
         await this.ensureScratchpadLoaded();
+        this._resetProgressiveSkillsForTurn();
 
         const userMessageStr = Array.isArray(userMessage) ? '[Multimodal Content]' : userMessage;
         this.logger.info(`Starting streaming session run`, { model: this.config.model, message: userMessageStr });

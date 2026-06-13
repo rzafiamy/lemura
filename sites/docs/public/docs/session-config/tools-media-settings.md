@@ -213,6 +213,40 @@ skillTokenBudget: 10_000
 
 ---
 
+### `activeDynamicSkills?: string[]` / `activeDynamicTags?: string[]`
+
+Enable `strategy: 'dynamic'` skills at construction time — by name or by tag. Dynamic skills are inert until the **host application** enables them (here, or at runtime via `session.skills.enableSkill()`).
+
+```typescript
+skills: [adminSkill /* strategy: 'dynamic', tags: ['admin'] */],
+activeDynamicSkills: ['admin-tools'],   // by name
+activeDynamicTags: ['admin'],           // or by tag
+```
+
+---
+
+### `skillSelection?: SkillSelectionConfig`
+
+Tunes **model-driven** (`strategy: 'progressive'`) skill selection. When any skill is `progressive`, lemura automatically appends a skill catalog to the system prompt, registers the built-in `load_skill` tool (auto-trusted by the firewall), and lets the **agent** choose which skills to load. This object is ignored when no progressive skills are present.
+
+```typescript
+skillSelection: {
+  persistence: 'per_turn',   // 'per_turn' (default) resets loaded skills each turn; 'session' keeps them
+  maxConcurrent: 3,          // optional: cap simultaneously loaded skills (soft error beyond it)
+  catalogHeader: '...',      // optional: override the catalog's instruction preamble
+}
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `persistence` | `'per_turn'` | Reset loaded skills each user turn, or keep them for the whole `'session'` |
+| `maxConcurrent` | unlimited | Max progressive skills active at once |
+| `catalogHeader` | built-in | Override the instruction text above the catalog list |
+
+> See [Progressive Disclosure →](/docs/tools-and-skills#progressive-disclosure-model-driven-skill-selection) for the full pattern and a worked example.
+
+---
+
 ## RAG Integration
 
 ### `ragAdapter?: IRAGAdapter`

@@ -129,6 +129,72 @@ Always provide a corrected code snippet for CRITICAL and MAJOR issues.
 
 ---
 
+## Skill Strategies
+
+Every skill declares a `strategy` that controls **when** its content is injected. The default is `fixed` for full backward compatibility.
+
+| Strategy | Active when… | Who decides | Use for |
+| --- | --- | --- | --- |
+| `fixed` (default) | Always — injected on every iteration | — | Global behavioral rules you always want in context |
+| `dynamic` | Your code calls `enableSkill()` / `enableByTags()` | **Host app** | Skills you toggle based on app state, user role, feature flags |
+| `progressive` | The **model** calls the built-in `load_skill` tool | **The agent** | Large skill libraries where only a few are relevant per request |
+
+```typescript
+const session = new SessionManager({
+  adapter, model: 'gpt-4o', maxTokens: 128_000,
+  skills: [
+    { name: 'house-style', content: '...', strategy: 'fixed' },        // always on
+    { name: 'admin-tools', content: '...', strategy: 'dynamic' },      // host toggles
+    { name: 'summarize',   content: '...', strategy: 'progressive',    // model loads
+      description: 'Condenses long text or documents into concise summaries.' },
+  ],
+});
+```
+
+---
+
+## Progressive Disclosure (model-driven skill selection)
+
+With `strategy: 'progressive'`, the agent **chooses its own skills**. Instead of injecting every skill's full content, lemura:
+
+1. Appends a lightweight **catalog** (`name: description`) of all progressive skills to the system prompt.
+2. Registers a built-in **`load_skill`** tool (auto-trusted by the tool firewall).
+3. When the model sees a relevant entry, it calls `load_skill({ name })` and lemura injects that skill's **full content** on the next iteration.
+4. By default, loaded skills reset between turns, so each message re-decides from the catalog.
+
+This is the "progressive disclosure" pattern — the same model used by Claude's Skill tool. **No host glue is required**: just mark skills `progressive` and give each a clear `description` (the model selects on it).
+
+```typescript
+const session = new SessionManager({
+  adapter, model: 'gpt-4o', maxTokens: 128_000,
+  skills: [
+    { name: 'summarize', strategy: 'progressive',
+      description: 'Condenses long text or documents into concise summaries.',
+      content: readFileSync('./skills/summarize.md', 'utf8') },
+    { name: 'fix', strategy: 'progressive',
+      description: 'Reviews a code snippet and fixes bugs.',
+      content: readFileSync('./skills/fix.md', 'utf8') },
+  ],
+  skillSelection: {
+    persistence: 'per_turn',   // 'per_turn' (default) | 'session'
+    maxConcurrent: 3,          // optional cap on simultaneously loaded skills
+    // catalogHeader: 'Custom preamble shown above the skill list...',
+  },
+});
+```
+
+**`skillSelection` options:**
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `persistence` | `'per_turn'` | `'per_turn'` resets loaded skills each user turn; `'session'` keeps them until disabled |
+| `maxConcurrent` | _unlimited_ | Max progressive skills active at once; `load_skill` returns a soft error beyond it |
+| `catalogHeader` | built-in text | Override the instruction preamble above the catalog list |
+
+> **Tip:** the model selects skills purely from each one's `description`. Write descriptions as *when to use this* ("Reviews a code snippet and fixes bugs"), not *what it is* ("A debugging skill").
+
+---
+
 ## Dynamic Tool Registration
 
 Tools can be registered and unregistered at runtime without recreating the session:

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-06-13
+
+### Added
+
+- **Progressive skills — model-driven skill selection** (`strategy: 'progressive'`): A third skill strategy alongside `fixed` and `dynamic`. The model sees a lightweight catalog (`name: description`) of progressive skills in its system prompt and decides which to pull in by calling a built-in `load_skill` tool; only the chosen skill's full content is then injected. This is the "progressive disclosure" pattern — the host wires nothing, the agent selects its own skills. Fully backward-compatible (default strategy remains `fixed`).
+- **Built-in `load_skill` tool** (`src/tools/builtin/load_skill.ts`, `createLoadSkillTool`): Auto-registered by `SessionManager` whenever a `progressive` skill is present, and auto-trusted by the tool firewall (it only toggles skill injection, no external side effects). The `name` parameter is constrained to the available progressive skills; unknown names and `maxConcurrent` violations return soft errors that keep the ReAct loop going.
+- **`SkillSelectionConfig`** (`SessionConfig.skillSelection`): Tunes progressive selection — `persistence` (`'per_turn'` default, or `'session'`), `maxConcurrent` (cap on simultaneously loaded skills), and `catalogHeader` (override the catalog preamble). Ignored when no progressive skills are present.
+- **`SkillInjector.buildCatalog(header?)`**: Builds the `name: description` catalog block for progressive skills. Plus `resetProgressiveSkills()`, `getProgressiveSkills()`, and `countEnabledProgressive()` helpers. `enableSkill`/`disableSkill`/`enableByTags`/`disableByTags` now operate on both `dynamic` and `progressive` skills.
+- **Full skill-lifecycle tracing**: `skill_load` now fires for **every registered skill** (not just active ones) and carries an `enabled` flag, so inactive `dynamic`/`progressive` skills are visible from session init. New `skill_enable` trace (`{ name, source: 'load_skill' }`) records the model's selection decision when it loads a progressive skill, and new `skill_reset` trace (`{ skills, reason: 'per_turn' }`) records per-turn clearing. `session_init` reports a `progressive` skill count; `skill_inject` fires for both dynamic and progressive injections.
+- **Tests**: `tests/unit/skills/ProgressiveSkills.test.ts` (catalog, activation, `load_skill` tool, `maxConcurrent`) and new `SessionManager` cases (auto-registration, per-turn vs session persistence).
+
 ## [1.6.0] - 2026-06-05
 
 ### Added

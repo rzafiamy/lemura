@@ -17,6 +17,11 @@ import { ISkill } from '../types/index.js';
  *   `SessionConfig.activeDynamicSkills` / `SessionConfig.activeDynamicTags`, or
  *   at runtime with `enableSkill()` / `enableByTags()`.
  *
+ * - **`'progressive'`** — Model-driven. Behaves like a `dynamic` skill for
+ *   activation (inactive until enabled), but is additionally surfaced in the
+ *   catalog produced by {@link buildCatalog} so the agent can request it via the
+ *   built-in `load_skill` tool. SessionManager enables it on the model's behalf.
+ *
  * ## Token budget
  *
  * Skills are sorted by `priority` (lower = higher priority). When a `tokenBudget`
@@ -52,13 +57,22 @@ export class SkillInjector {
     }
 
     /**
+     * Strategies whose skills form an opt-in pool — inactive until explicitly
+     * enabled. Both `dynamic` (host-enabled) and `progressive` (model-enabled via
+     * the `load_skill` tool) behave this way.
+     */
+    private _isPoolStrategy(strategy: ISkill['strategy']): boolean {
+        return strategy === 'dynamic' || strategy === 'progressive';
+    }
+
+    /**
      * Normalises a skill to ensure consistent defaults.
-     * For dynamic skills, `enabled` defaults to `false` unless explicitly set.
-     * For fixed skills (or those without a strategy), `enabled` is ignored.
+     * For pool skills (`dynamic` / `progressive`), `enabled` defaults to `false`
+     * unless explicitly set. For `fixed` skills, `enabled` is ignored.
      */
     private _normalise(skill: ISkill): ISkill {
         const strategy = skill.strategy ?? 'fixed';
-        const enabled = strategy === 'dynamic'
+        const enabled = this._isPoolStrategy(strategy)
             ? (skill.enabled ?? false)
             : true; // fixed skills are always conceptually enabled
         return { ...skill, strategy, enabled };
@@ -74,44 +88,81 @@ export class SkillInjector {
      */
     enableSkill(name: string): void {
         const skill = this.skills.find(s => s.name === name);
-        if (skill && skill.strategy === 'dynamic') {
+        if (skill && this._isPoolStrategy(skill.strategy)) {
             skill.enabled = true;
         }
     }
 
     /**
-     * Disable a dynamic skill by name.
+     * Disable a pool skill (`dynamic` or `progressive`) by name.
      * Has no effect on fixed skills.
      */
     disableSkill(name: string): void {
         const skill = this.skills.find(s => s.name === name);
-        if (skill && skill.strategy === 'dynamic') {
+        if (skill && this._isPoolStrategy(skill.strategy)) {
             skill.enabled = false;
         }
     }
 
     /**
-     * Enable all dynamic skills whose `tags` array intersects with `tags`.
+     * Enable all pool skills (`dynamic` / `progressive`) whose `tags` array
+     * intersects with `tags`.
      */
     enableByTags(tags: string[]): void {
         const tagSet = new Set(tags);
         for (const skill of this.skills) {
-            if (skill.strategy === 'dynamic' && skill.tags?.some(t => tagSet.has(t))) {
+            if (this._isPoolStrategy(skill.strategy) && skill.tags?.some(t => tagSet.has(t))) {
                 skill.enabled = true;
             }
         }
     }
 
     /**
-     * Disable all dynamic skills whose `tags` array intersects with `tags`.
+     * Disable all pool skills (`dynamic` / `progressive`) whose `tags` array
+     * intersects with `tags`.
      */
     disableByTags(tags: string[]): void {
         const tagSet = new Set(tags);
         for (const skill of this.skills) {
-            if (skill.strategy === 'dynamic' && skill.tags?.some(t => tagSet.has(t))) {
+            if (this._isPoolStrategy(skill.strategy) && skill.tags?.some(t => tagSet.has(t))) {
                 skill.enabled = false;
             }
         }
+    }
+
+    /**
+     * Disable every progressive skill. Called by SessionManager between turns when
+     * `skillSelection.persistence` is `'per_turn'` so each turn re-decides from the
+     * catalog. Has no effect on `fixed` or `dynamic` skills.
+     *
+     * @since 1.7.0
+     */
+    resetProgressiveSkills(): void {
+        for (const skill of this.skills) {
+            if (skill.strategy === 'progressive') {
+                skill.enabled = false;
+            }
+        }
+    }
+
+    /**
+     * Returns all progressive skills, regardless of enabled state. Used to detect
+     * whether the catalog / `load_skill` machinery should be activated.
+     *
+     * @since 1.7.0
+     */
+    getProgressiveSkills(): ISkill[] {
+        return this.skills.filter(s => s.strategy === 'progressive');
+    }
+
+    /**
+     * Number of currently-enabled progressive skills. Used to enforce
+     * `skillSelection.maxConcurrent`.
+     *
+     * @since 1.7.0
+     */
+    countEnabledProgressive(): number {
+        return this.skills.filter(s => s.strategy === 'progressive' && s.enabled === true).length;
     }
 
     // -----------------------------------------------------------------------
@@ -157,8 +208,53 @@ export class SkillInjector {
     }
 
     private _isActive(skill: ISkill): boolean {
-        return skill.strategy !== 'dynamic' || skill.enabled === true;
+        // Fixed skills are always active; pool skills (dynamic/progressive) only
+        // when explicitly enabled.
+        return !this._isPoolStrategy(skill.strategy) || skill.enabled === true;
     }
+
+    // -----------------------------------------------------------------------
+    // Catalog builder (progressive skills)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Builds a compact `name: description` catalog of all progressive skills, with
+     * an instructional preamble telling the agent to call `load_skill` for relevant
+     * entries. SessionManager appends this to the system prompt so the model can
+     * decide which skills to pull in — full content is injected only on `load_skill`.
+     *
+     * Returns an empty string when there are no progressive skills (the catalog and
+     * `load_skill` tool are then never activated).
+     *
+     * @param header - Optional override for the instructional preamble.
+     * @returns The catalog block, or `''` when no progressive skills exist.
+     *
+     * @since 1.7.0
+     *
+     * @example
+     * ```typescript
+     * const catalog = injector.buildCatalog();
+     * // You have access to specialized skills...
+     * // Available skills:
+     * // - summarize: Condenses text or documents concisely.
+     * ```
+     */
+    buildCatalog(header?: string): string {
+        const progressive = this.getProgressiveSkills();
+        if (progressive.length === 0) return '';
+
+        const preamble = header ?? SkillInjector.DEFAULT_CATALOG_HEADER;
+        const lines = progressive.map(s => `- ${s.name}: ${s.description}`);
+        return `${preamble}\n\nAvailable skills:\n${lines.join('\n')}`;
+    }
+
+    /** Default instructional preamble for the progressive-skill catalog. */
+    static readonly DEFAULT_CATALOG_HEADER =
+        'You have access to specialized skills. Each provides focused guidance for a ' +
+        "particular kind of request. When a skill is relevant to the user's message, " +
+        'call the `load_skill` tool with its name BEFORE answering — its full ' +
+        'instructions will then be injected for you to follow. Load only what is ' +
+        'relevant; skip it for small talk or unrelated questions.';
 
     // -----------------------------------------------------------------------
     // Injection block builder

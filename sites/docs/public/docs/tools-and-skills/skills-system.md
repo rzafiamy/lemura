@@ -65,9 +65,15 @@ You are an expert software engineer specializing in code review.
 
 ---
 
-## Loading Strategies: Fixed vs Dynamic
+## Loading Strategies: Fixed, Dynamic & Progressive
 
-Skills support two loading strategies that control when they are injected.
+Skills support three loading strategies that control when — and by whom — they are injected.
+
+| Strategy | Active when… | Who decides |
+| --- | --- | --- |
+| `fixed` (default) | Always | — |
+| `dynamic` | Host calls `enableSkill()` / `enableByTags()` | Host application |
+| `progressive` | Model calls the built-in `load_skill` tool | The agent |
 
 ### `strategy: fixed` (default)
 
@@ -132,9 +138,38 @@ const session = new SessionManager({
 });
 ```
 
+### `strategy: progressive`
+
+Model-driven selection. Like `dynamic`, a progressive skill is **inactive by default** — but instead of the host enabling it, lemura surfaces every progressive skill in a **catalog** (`name: description`) appended to the system prompt and registers a built-in **`load_skill`** tool. The agent reads the catalog and calls `load_skill({ name })` for whatever is relevant; lemura then injects that skill's full content on the next iteration. By default loaded skills reset between turns. **No host glue is required.**
+
+```typescript
+const session = new SessionManager({
+  adapter,
+  model: 'gpt-4o',
+  maxTokens: 128_000,
+  skills: [
+    {
+      name: 'summarize',
+      strategy: 'progressive',
+      description: 'Condenses long text or documents into concise summaries.', // model selects on this
+      inject: 'system_prompt',
+      priority: 30,
+      version: '1.0.0',
+      content: 'Lead with a one-sentence summary, then 3–5 bullets.',
+    },
+  ],
+  skillSelection: {
+    persistence: 'per_turn',   // 'per_turn' (default) | 'session'
+    maxConcurrent: 3,          // optional cap
+  },
+});
+```
+
+> Write each `description` as *when to use this skill* — the model selects purely from it. See [Progressive Disclosure →](/docs/tools-and-skills#progressive-disclosure-model-driven-skill-selection) for the full pattern.
+
 ### Runtime enable/disable
 
-The `session.skills` accessor exposes the `SkillInjector` for runtime control:
+The `session.skills` accessor exposes the `SkillInjector` for runtime control (works for both `dynamic` and `progressive` skills):
 
 ```typescript
 // Enable a dynamic skill by name
@@ -357,19 +392,39 @@ nano        ≤ 100         frontmatter nano: field
 
 ## Observability — Skill Traces
 
-When `onTrace` is configured, every active skill emits a `skill / skill_load` trace at session construction:
+When `onTrace` is configured, lemura emits a `skill` event at every stage of a skill's lifecycle. All events have `type: 'skill'`; the `name` distinguishes the stage:
+
+| `name` | When | Key `metadata` |
+| --- | --- | --- |
+| `skill_load` | At session construction, **once per registered skill** (active or not) | `name`, `strategy`, `inject`, `priority`, `tags`, `requiredTools`, `enabled` |
+| `skill_enable` | When the model loads a progressive skill via `load_skill` | `name`, `source: 'load_skill'` |
+| `skill_inject` | When a dynamic/progressive skill's full content is injected into the prompt | `skills: string[]`, `position` |
+| `skill_reset` | When per-turn persistence clears loaded progressive skills at the start of a turn | `skills: string[]`, `reason: 'per_turn'` |
 
 ```typescript
 const session = new SessionManager({
   adapter, model, maxTokens, skills,
   onTrace: (event) => {
-    if (event.type === 'skill' && event.name === 'skill_load') {
-      console.log(`Skill loaded: ${event.metadata.name} (${event.metadata.strategy})`);
-      console.log(`  Required tools: ${event.metadata.requiredTools.join(', ')}`);
+    if (event.type !== 'skill') return;
+    switch (event.name) {
+      case 'skill_load':
+        console.log(`Registered: ${event.metadata.name} (${event.metadata.strategy}, enabled=${event.metadata.enabled})`);
+        break;
+      case 'skill_enable':
+        console.log(`Agent loaded skill: ${event.metadata.name}`);   // the model's decision
+        break;
+      case 'skill_inject':
+        console.log(`Injected: ${event.metadata.skills.join(', ')}`);
+        break;
+      case 'skill_reset':
+        console.log(`Reset between turns: ${event.metadata.skills.join(', ')}`);
+        break;
     }
   },
 });
 ```
+
+> `skill_load` traces **every** registered skill — including `dynamic`/`progressive` skills that start inactive — so you can build a "skills available this session" view directly from the trace stream. Use the `enabled` field to tell which are active at init.
 
 The `system / session_init` trace also includes a skills summary:
 ```json
@@ -377,7 +432,7 @@ The `system / session_init` trace also includes a skills summary:
   "type": "system",
   "name": "session_init",
   "metadata": {
-    "skills": { "total": 4, "active": 3, "fixed": 2, "dynamic": 1 }
+    "skills": { "total": 5, "active": 2, "fixed": 2, "dynamic": 1, "progressive": 2 }
   }
 }
 ```
@@ -391,5 +446,7 @@ The `system / session_init` trace also includes a skills summary:
 > **Tip:** Skills are re-injected after every context compression event. This is the entire point — don't put rules in the regular conversation history if you want them to survive compression. Put them in skills.
 
 > **Tip:** Use `dynamic` skills for specialist modes (e.g. "code-review mode", "data-analysis mode") that your UI activates via `session.skills.enableByTags(['mode-tag'])`.
+
+> **Tip:** Use `progressive` skills when you have a large library and want the *agent* to pick — it reads the catalog and loads only what's relevant. Watch the `skill_enable` trace to see which skills the model chose for each turn.
 
 > **Tip:** Combine `requiredTools` with `session.skills.getRequiredTools()` to build minimal, context-aware tool sets — expose only the tools the active skill set actually needs.

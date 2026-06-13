@@ -25,6 +25,7 @@
 ### ✨ Key Features
 
 - **🧠 Dynamic Skill Market**: Switch skills on/off at runtime via tags, names, or tool dependencies.
+- **📖 Progressive Skills**: Let the agent pick its own skills — it reads a catalog and loads only what's relevant via the built-in `load_skill` tool (`strategy: 'progressive'`).
 - **🔌 Native MCP Support**: Connect to any Model Context Protocol server with custom header support (Auth).
 - **🛡️ Tool Firewall**: Fully integrated ask/accept/deny policy layer for secure tool execution — fail-safe by design.
 - **🎯 Goal Maintenance & Verification**: LLM-powered sub-goal decomposition, progress reconciliation, and post-run goal verification that re-enters the loop with full tool access to finish incomplete answers.
