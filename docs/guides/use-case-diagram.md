@@ -29,30 +29,30 @@ The use cases below map to real public API surface on
 
 ```mermaid
 flowchart LR
-    dev(("👤 Consumer<br/>Developer"))
-    user(("👤 End User"))
-    author(("👤 Tool / Skill<br/>Author"))
-    provider(("🤖 Provider<br/>LLM"))
-    rag(("🗄️ RAG Store"))
-    mcp(("🔌 MCP Server"))
+    dev["Consumer Developer"]
+    user["End User"]
+    author["Tool / Skill Author"]
+    provider["Provider LLM"]
+    rag["RAG Store"]
+    mcp["MCP Server"]
 
-    subgraph LEMURA["lemura runtime (SessionManager)"]
+    subgraph LEMURA["lemura runtime - SessionManager"]
         direction TB
         UC1(["Configure session"])
-        UC2(["Run a request<br/>(run / stream)"])
-        UC3(["Manage tools at runtime<br/>(register / unregister)"])
-        UC4(["Manage skills at runtime<br/>(enable / disable / by tags)"])
-        UC5(["Set goal &amp; plan<br/>(setGoal / setPlan)"])
-        UC6(["Load / inspect history<br/>(loadHistory / getHistory)"])
+        UC2(["Run a request - run / stream"])
+        UC3(["Manage tools at runtime"])
+        UC4(["Manage skills at runtime"])
+        UC5(["Set goal and plan"])
+        UC6(["Load / inspect history"])
         UC7(["Reset / close session"])
-        UC8(["Direct media ops<br/>(ASR / TTS / vision / image)"])
+        UC8(["Direct media ops - ASR / TTS / vision"])
 
-        UC9(["Route the turn<br/>(MetaRouter)"])
-        UC10(["Manage context window<br/>(compression)"])
-        UC11(["Execute a tool<br/>(validate · firewall · timeout)"])
+        UC9(["Route the turn - MetaRouter"])
+        UC10(["Manage context window - compression"])
+        UC11(["Execute a tool - validate, firewall, timeout"])
         UC12(["Inject skills"])
-        UC13(["Plan &amp; verify goal"])
-        UC14(["Observe via traces<br/>(onTrace / onTurn)"])
+        UC13(["Plan and verify goal"])
+        UC14(["Observe via traces - onTrace / onTurn"])
     end
 
     dev --> UC1
@@ -67,7 +67,7 @@ flowchart LR
     author -. defines .-> UC11
     author -. authors .-> UC12
 
-    %% includes (core run pipeline)
+    %% includes - core run pipeline
     UC2 -. include .-> UC9
     UC2 -. include .-> UC10
     UC2 -. include .-> UC12

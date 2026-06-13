@@ -106,7 +106,7 @@ classDiagram
     class CompletionResponse {
         +content string
         +toolCalls? ToolCall[]
-        +finishReason "stop|tool_call|max_tokens|error"
+        +finishReason FinishReason
         +usage TokenUsage
     }
     IProviderAdapter ..> CompletionResponse
@@ -168,9 +168,9 @@ classDiagram
     class ISkill {
         <<interface>>
         +name string
-        +inject "system_prompt|pre_turn|post_history"
+        +inject InjectPosition
         +priority number
-        +strategy? "fixed|dynamic"
+        +strategy? SkillStrategy
         +tags? string[]
     }
     SkillInjector o-- ISkill
@@ -222,8 +222,8 @@ classDiagram
         +statement string
         +decomposition string[]
         +successCriteria string[]
-        +injectionFrequency "always|every_N_turns|on_compression"
-        +injectionPosition "system_prompt|pre_turn"
+        +injectionFrequency InjectionFrequency
+        +injectionPosition InjectionPosition
     }
     GoalInjector *-- Goal
 
@@ -241,7 +241,7 @@ classDiagram
         <<interface>>
         +steps ContinuationStep[]
         +currentStepIndex number
-        +strategy "sequential|parallel|conditional"
+        +strategy PlanStrategy
     }
     ContinuationPlanner *-- ContinuationPlan
 
