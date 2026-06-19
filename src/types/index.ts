@@ -3,6 +3,7 @@ export * from './agent.js';
 export * from './context.js';
 export * from './errors.js';
 export * from './logger.js';
+export * from './memory.js';
 export * from './rag.js';
 export * from './skills.js';
 export * from './storage.js';

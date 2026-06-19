@@ -1,6 +1,6 @@
 {
   "name": "lemura",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Provider-agnostic agentic AI runtime",
   "license": "MIT",
   "author": "rzafiamy",
@@ -52,6 +52,11 @@
       "types": "./dist/rag/index.d.ts",
       "import": "./dist/rag/index.mjs",
       "require": "./dist/rag/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.mjs",
+      "require": "./dist/memory/index.js"
     },
     "./logger": {
       "types": "./dist/logger/index.d.ts",

@@ -31,6 +31,9 @@ import {
 } from '../tools/builtin/short_term_memory.js';
 import { createMediaTools } from '../tools/builtin/media.js';
 import { createLoadSkillTool, LOAD_SKILL_TOOL_NAME } from '../tools/builtin/load_skill.js';
+import { createMemoryTools, MEMORY_TOOL_NAMES } from '../tools/builtin/memory.js';
+import { MemoryManager } from '../memory/MemoryManager.js';
+import { MemoryInjectionStrategy } from '../memory/MemoryInjectionStrategy.js';
 import { MediaBridge } from '../media/MediaBridge.js';
 import { evaluateToolFirewall } from '../tools/ToolFirewall.js';
 import { StepCounter } from './execution/StepCounter.js';
@@ -84,6 +87,8 @@ export class SessionManager {
     private goalInjector: GoalInjector | null = null;
     private continuationPlanner: ContinuationPlanner | null = null;
     private router: IRouterAdapter | null = null;
+    /** Long-term memory orchestrator — present when `config.memory` is set. @since 1.8.0 */
+    private memoryManager: MemoryManager | null = null;
     /**
      * Tool categories selected by the router for the current turn, or `null` when
      * routing is disabled / not yet run. When non-null, only tools whose
@@ -189,6 +194,45 @@ export class SessionManager {
         if (config.media?.enableTools) {
             const prefix = config.media.toolPrefix || 'media_';
             for (const tool of createMediaTools(prefix)) {
+                this.toolRegistry.register(tool);
+            }
+        }
+
+        // Long-term memory: build the orchestrator, register the budget-aware recall
+        // strategy, and register the remember/recall/forget builtin tools. All opt-in —
+        // skipped entirely when config.memory is absent (identical to pre-1.8.0).
+        if (config.memory) {
+            this.memoryManager = new MemoryManager({
+                store: config.memory.store,
+                ...(config.memory.scorer ? { scorer: config.memory.scorer } : {}),
+                adapter: this.adapter,
+                model: config.model,
+                logger: this.logger,
+                ...(config.memory.scope !== undefined ? { scope: config.memory.scope } : {}),
+                ...(config.memory.weights ? { weights: config.memory.weights } : {}),
+                ...(config.memory.recencyHalfLifeMs !== undefined
+                    ? { recencyHalfLifeMs: config.memory.recencyHalfLifeMs }
+                    : {}),
+                ...(config.memory.recallTopK !== undefined ? { recallTopK: config.memory.recallTopK } : {}),
+                ...(config.memory.minScore !== undefined ? { minScore: config.memory.minScore } : {}),
+                ...(config.memory.consolidateEvery !== undefined
+                    ? { consolidateEvery: config.memory.consolidateEvery }
+                    : {}),
+                onTrace: (name, metadata) => this.emitTrace('memory', name, metadata),
+            });
+
+            this.contextManager.registerStrategy(
+                new MemoryInjectionStrategy(this.memoryManager, {
+                    priority: config.memory.injectionPriority ?? 2,
+                    ...(config.memory.injectionLabel ? { label: config.memory.injectionLabel } : {}),
+                    ...(config.memory.recallTokenBudget !== undefined
+                        ? { tokenBudget: config.memory.recallTokenBudget }
+                        : {}),
+                    estimateTokens: (t: string) => this.adapter.estimateTokens(t),
+                })
+            );
+
+            for (const tool of createMemoryTools()) {
                 this.toolRegistry.register(tool);
             }
         }
@@ -1013,6 +1057,17 @@ Respond ONLY with valid JSON (no markdown, no explanations):
             return true;
         }
 
+        // The built-in memory tools (remember/recall) are trusted control-plane tools:
+        // they only mutate the local memory store, no external side effects. `forget`
+        // (a delete) is intentionally NOT auto-trusted, so a configured firewall can
+        // still gate destructive removals.
+        if (
+            this.memoryManager &&
+            (toolName === MEMORY_TOOL_NAMES[0] || toolName === MEMORY_TOOL_NAMES[1])
+        ) {
+            return true;
+        }
+
         const firewall = evaluateToolFirewall(
             this.config.toolFirewall,
             toolName,
@@ -1093,6 +1148,9 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         };
         if (this.config.ragAdapter) {
             executeContext['ragAdapter'] = this.config.ragAdapter;
+        }
+        if (this.memoryManager) {
+            executeContext['memory'] = this.memoryManager;
         }
 
         this.logger.debug(`Executing tool: ${tc.name}`, { args: JSON.stringify(args) });
@@ -1254,7 +1312,25 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         if (this.mcpReady) await this.mcpReady;
         await this.ensureScratchpadLoaded();
         this._resetProgressiveSkillsForTurn();
-        return this._executeLoop(userMessage, { label: 'run' });
+        const result = await this._executeLoop(userMessage, { label: 'run' });
+        await this._maybeReflect();
+        return result;
+    }
+
+    /**
+     * Autonomous long-term-memory write. When `config.memory.autoReflect` is on,
+     * extracts durable facts from the conversation after the turn settles (one cheap
+     * LLM call). Best-effort: failures are swallowed so they never break `run()`.
+     *
+     * @since 1.8.0
+     */
+    private async _maybeReflect(): Promise<void> {
+        if (!this.memoryManager || !this.config.memory?.autoReflect) return;
+        try {
+            await this.memoryManager.reflect(this.context.turns);
+        } catch (err: unknown) {
+            this.logger.warn('Memory auto-reflect failed', { error: (err as Error)?.message });
+        }
     }
 
     /**

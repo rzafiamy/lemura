@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-16
+
+### Added
+
+- **Long-Term Memory subsystem** (`lemura/memory`, `SessionConfig.memory`): A persistent, cross-session, ranked, decaying, **token-budget-aware** memory — the capability missing between STM (large blobs), Scratchpad (per-session notes), and RAG (passive document store). Opt-in: when `config.memory` is absent, behavior is identical to 1.7.0. **Embedding-free by default** — the only place embeddings can enter is a pluggable scorer.
+- **`MemoryManager`** (`src/memory/MemoryManager.ts`): Orchestrates `remember` (de-dup + reinforce), `recall` (composite-score ranking with reinforcement), `reflect` (autonomous fact extraction), `consolidate` (merge near-duplicates), and `forget`. Composite retrieval score `wR·relevance + wT·recency + wI·importance + wF·frequency` with exponential recency decay (generative-agents formula). Only the `relevance` term is pluggable; the rest is pure arithmetic.
+- **`MemoryInjectionStrategy`** (`IContextStrategy`): Budget-aware recall. Runs inside `ContextManager.prepare()` exactly like `SummaryInjectionStrategy`, so the recalled `<lemura:memory>` block is counted against `maxTokens` — memory can never overflow the window. Greedily fills `recallTokenBudget`; injected as a single synthetic system turn (`turnIndex = -2`) updated in place across iterations (idempotent).
+- **Pluggable scorers** (`IMemoryScorer`): `LexicalScorer` (default, embedding-free BM25-ish, offline), `EmbeddingScorer` (opt-in, requires the new optional `adapter.embed?()`; falls back to lexical otherwise), `LLMReRankScorer` (opt-in, paraphrase-robust via one cheap `complete()` call, no vector store).
+- **`StorageMemoryStore`** (`IMemoryStore`): Default store over any `IStorageAdapter` ("Any storage" — in-memory, IndexedDB, SQLite, Redis, file store), with a lightweight index record for filtered `list()` without full scans.
+- **Built-in `remember`/`recall`/`forget` tools** (`src/tools/builtin/memory.ts`): Auto-registered when `config.memory` is present, categorized `memory` for the router. `remember`/`recall` are auto-trusted by the firewall (local-only side effects); `forget` (a delete) stays firewall-gated.
+- **`IProviderAdapter.embed?()`** (optional, additive): Returns an embedding vector; enables `EmbeddingScorer`. Existing adapters compile and run unchanged.
+- **`ToolContext.memory?`** (additive): The `MemoryManager` is exposed to tool `execute()`.
+- **`SessionConfig.memory.autoReflect`**: When true, durable facts are extracted from the conversation once at the end of each `run()` (one cheap LLM call; off by default, best-effort).
+- **`TraceEvent.type: 'memory'`**: New trace type — `memory_write`, `memory_recall`, `memory_reflect`, `memory_consolidate`, `memory_forget`.
+- **Tests**: `tests/unit/memory/Memory.test.ts` (store, scorer, manager ranking/dedup/reflect/forget, injection budget+idempotency) and `tests/unit/memory/SessionMemory.test.ts` (tool registration, cross-session recall, autoReflect, no-overflow).
+
 ## [1.7.0] - 2026-06-13
 
 ### Added

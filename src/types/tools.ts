@@ -4,6 +4,7 @@ import { IProviderAdapter } from './adapters.js';
 import { IScratchpadAdapter } from './storage.js';
 
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
+import type { MemoryManager } from '../memory/MemoryManager.js';
 
 export interface ToolContext {
     sessionId: string;
@@ -14,6 +15,8 @@ export interface ToolContext {
     stmRegistry?: ShortTermMemoryRegistry;
     scratchpad?: string;
     scratchpadAdapter?: IScratchpadAdapter;
+    /** Long-term memory orchestrator. Present when `SessionConfig.memory` is set. @since 1.8.0 */
+    memory?: MemoryManager;
 }
 
 export interface IToolDefinition {

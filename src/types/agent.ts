@@ -4,6 +4,7 @@ import { IToolDefinition } from './tools.js';
 import { ILogger } from './logger.js';
 import { ISkill, SkillSelectionConfig } from './skills.js';
 import { IRAGAdapter } from './rag.js';
+import { MemoryConfig } from './memory.js';
 import { ShortTermMemoryRegistry } from '../context/ShortTermMemoryRegistry.js';
 import { MCPServerConfig } from './mcp.js';
 import { IScratchpadAdapter } from './storage.js';
@@ -208,6 +209,16 @@ export interface SessionConfig {
     skillSelection?: SkillSelectionConfig;
     /** RAG adapter */
     ragAdapter?: IRAGAdapter;
+    /**
+     * Long-term memory configuration. When set, lemura wires a persistent,
+     * cross-session, ranked, decaying memory: a budget-aware recall strategy is
+     * registered, `remember`/`recall`/`forget` builtin tools are auto-registered and
+     * auto-trusted, and (if `autoReflect`) durable facts are extracted at session end.
+     * Absent ⇒ no memory wiring (identical to pre-1.8.0). Embedding-free by default.
+     *
+     * @since 1.8.0
+     */
+    memory?: MemoryConfig;
     /** Context compression strategies */
     compressionStrategies?: IContextStrategy[];
     /** System prompt base */
@@ -390,7 +401,7 @@ export interface SessionConfig {
 /** Rich trace event for observability */
 export interface TraceEvent {
     sessionId?: string;
-    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill' | 'verification' | 'routing';
+    type: 'planning' | 'budget' | 'tool_call' | 'tool_result' | 'thinking' | 'system' | 'compression' | 'error' | 'skill' | 'verification' | 'routing' | 'memory';
     name: string;
     input?: any;
     output?: any;

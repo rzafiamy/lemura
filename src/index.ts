@@ -5,6 +5,7 @@ export * from './tools/index.js';
 export * from './media/index.js';
 export * from './skills/index.js';
 export * from './rag/index.js';
+export * from './memory/index.js';
 export * from './agent/index.js';
 export * from './logger/index.js';
 export * from './mcp/index.js';

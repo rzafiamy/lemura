@@ -180,6 +180,15 @@ export interface IProviderAdapter {
     generateImage(request: ImageGenRequest): Promise<ImageGenResponse>;
 
     /**
+     * Optional. Returns an embedding vector for the given text. Enables the
+     * long-term-memory `EmbeddingScorer`; when absent, memory falls back to the
+     * embedding-free `LexicalScorer`. Existing adapters need not implement this.
+     *
+     * @since 1.8.0
+     */
+    embed?(text: string, model?: string): Promise<number[]>;
+
+    /**
      * Estimates token count for standard text.
      *
      * @param text - The string to measure

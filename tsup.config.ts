@@ -8,6 +8,7 @@ export default defineConfig({
     'tools/index': 'src/tools/index.ts',
     'skills/index': 'src/skills/index.ts',
     'rag/index': 'src/rag/index.ts',
+    'memory/index': 'src/memory/index.ts',
     'logger/index': 'src/logger/index.ts',
     'types/index': 'src/types/index.ts',
   },
