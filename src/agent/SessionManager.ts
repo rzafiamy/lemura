@@ -2028,3 +2028,24 @@ Respond ONLY with valid JSON (no markdown, no explanations):
         }
     }
 }
+
+/**
+ * Primary entry point for lemura agent sessions — the canonical name going forward.
+ *
+ * `LemurAgent` is the preferred alias for {@link SessionManager}. The two are the
+ * exact same class with identical configuration and behavior; new code should use
+ * `LemurAgent`, while `SessionManager` remains exported for backward compatibility.
+ *
+ * @example
+ * ```typescript
+ * const agent = new LemurAgent({ adapter, model: 'gpt-4o', maxTokens: 16_000 });
+ * const answer = await agent.run('What is the capital of France?');
+ * ```
+ */
+export const LemurAgent = SessionManager;
+
+/**
+ * Type-level alias for {@link SessionManager}, paired with the {@link LemurAgent}
+ * value export so `LemurAgent` works in both type and value positions.
+ */
+export type LemurAgent = SessionManager;
